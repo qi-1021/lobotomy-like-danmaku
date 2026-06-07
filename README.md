@@ -9,7 +9,6 @@
 - 随机位置、角度、大小
 - 支持中文/英文/韩文
 - GUI 图形界面 + CLI 命令行
-- 跨平台支持（macOS / Windows / Linux）
 
 ## 安装
 
@@ -50,29 +49,30 @@ cp /System/Library/Fonts/PingFang.ttc fonts_proper/
 
 ## 快速开始
 
-### GUI 图形界面
+### GUI 图形界面（推荐）
 
 ```bash
-python3 lobotomy_gui.py
+# macOS / Linux
+./run_gui.sh
+
+# Windows
+双击 run_gui.bat
 ```
 
 ### CLI 命令行
 
 ```bash
-# 使用预设
-python3 lobotomy_cli.py -i input.mp4 -o output.mp4 --preset core_suppression
+# 使用 JSON 文件
+python3 lobotomy_cli.py -i input.mp4 -o output.mp4 --texts texts.json
 
-# 自定义文字
+# 直接指定文字
 python3 lobotomy_cli.py -i input.mp4 -o output.mp4 \
   --text "控制部" --color "#b43c3c" \
   --text "WARNING" --color "#cc3333"
 
-# 使用 JSON 文件
-python3 lobotomy_cli.py -i input.mp4 -o output.mp4 --texts texts.json
-
 # 调整参数
 python3 lobotomy_cli.py -i input.mp4 -o output.mp4 \
-  --preset core_suppression \
+  --texts texts.json \
   --density 0.5 \
   --max-active 6 \
   --size-min 20 \
@@ -87,11 +87,10 @@ python3 lobotomy_cli.py -i input.mp4 -o output.mp4 \
 | `-i, --input` | 输入视频文件 | ✓ |
 | `-o, --output` | 输出视频文件 | 默认 output.mp4 |
 
-### 文字输入（三选一）
+### 文字输入
 | 参数 | 说明 |
 |------|------|
 | `--texts` | JSON 文件，格式: `[{"text":"控制部","color":"#b43c3c"}]` |
-| `--preset` | 预设名称: `core_suppression`, `all_departments`, `minimal` |
 | `--text` | 直接指定文字（可重复使用） |
 | `--color` | 配合 --text 使用的颜色（默认 #b43c3c） |
 
@@ -106,17 +105,6 @@ python3 lobotomy_cli.py -i input.mp4 -o output.mp4 \
 | `--angle-max` | 14 | 最大旋转角度 |
 | `--seed` | 42 | 随机种子（相同种子=相同结果） |
 
-## 预设文字
-
-### core_suppression
-控制部核心抑制效果：CORE SUPPRESSION、控制部、MALKUTH、异想体已突破收容、CONTAINMENT BREACH、所有部门进入红色警戒、핵심 억제
-
-### all_departments
-所有部门名称：控制部、情报部、培训部、安保部、中央本部、福利部、惩戒部、记录部、研发部、构建部
-
-### minimal
-极简：WARNING、ALERT
-
 ## JSON 格式
 
 ```json
@@ -130,12 +118,11 @@ python3 lobotomy_cli.py -i input.mp4 -o output.mp4 \
 支持的颜色格式：
 - 十六进制: `"#b43c3c"`
 - RGB 数组: `[180, 60, 60]`
-- 逗号分隔: `"180,60,60"`
 
 ## GUI 功能
 
 1. **导入视频** - 支持 mp4/mov/avi/mkv/webm
-2. **文字编辑** - 手动输入或从预设选择
+2. **文字编辑** - 手动输入文字和颜色
 3. **颜色选择** - 自定义拾色器
 4. **位置设置** - X/Y 坐标，或直接点击画布定位
 5. **时间控制** - 开始/结束时间、透明度、留存时间
