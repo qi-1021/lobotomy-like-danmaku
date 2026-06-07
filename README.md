@@ -1,5 +1,11 @@
 # Lobotomy Corporation - Core Suppression Danmaku (Rust)
 
+**鬼知道会有什么bug，反正我要被AI搞崩溃了。**
+
+**要是那些AI有部长一半好用，我早就解脱了。**
+
+**附：sbAI还把吐槽删了，多有意思！还好我留了备份。**
+
 Rust 原生版本，模拟脑叶公司核心抑制效果的弹幕视频工具。
 
 ## 构建
