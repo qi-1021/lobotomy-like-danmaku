@@ -8,24 +8,70 @@ const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(136, 136, 136);
 
 impl eframe::App for DanmakuApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let now = if self.playing {
-            if let Some(start) = self.play_start {
-                start.elapsed().as_secs_f64()
+        // 计算当前时间
+        let t = if self.playing {
+            let elapsed = self.play_start.map(|s| s.elapsed().as_secs_f64()).unwrap_or(0.0);
+            let t = self.preview_time_offset + elapsed;
+            let max_time = self.video_info.as_ref().map(|i| i.duration).unwrap_or(10.0);
+            if t >= max_time {
+                self.playing = false;
+                self.play_start = None;
+                max_time
             } else {
-                self.play_start = Some(std::time::Instant::now());
-                0.0
+                self.preview_time = t;
+                ctx.request_repaint();
+                t
             }
         } else {
             self.preview_time
         };
-        if self.playing {
-            if let Some(info) = &self.video_info {
-                if now > info.duration {
-                    self.playing = false;
-                    self.play_start = None;
-                }
-            }
-            ctx.request_repaint();
+
+        // ═══ 颜色弹窗 ═══
+        if self.show_color_picker {
+            egui::Window::new("选择颜色")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("R:");
+                        ui.add(egui::DragValue::new(&mut self.color_picker_rgb[0]).speed(0.01).range(0.0..=1.0));
+                        ui.label("G:");
+                        ui.add(egui::DragValue::new(&mut self.color_picker_rgb[1]).speed(0.01).range(0.0..=1.0));
+                        ui.label("B:");
+                        ui.add(egui::DragValue::new(&mut self.color_picker_rgb[2]).speed(0.01).range(0.0..=1.0));
+                    });
+                    // 预览色块
+                    let c = egui::Color32::from_rgb(
+                        (self.color_picker_rgb[0] * 255.0) as u8,
+                        (self.color_picker_rgb[1] * 255.0) as u8,
+                        (self.color_picker_rgb[2] * 255.0) as u8,
+                    );
+                    let (resp, painter) = ui.allocate_painter(egui::vec2(200.0, 40.0), egui::Sense::hover());
+                    painter.rect_filled(resp.rect, 4.0, c);
+                    // 常用颜色快捷
+                    ui.horizontal(|ui| {
+                        let presets = [
+                            [0.7, 0.2, 0.2], [0.3, 0.69, 0.85], [0.31, 0.74, 0.43],
+                            [0.65, 0.29, 0.75], [0.8, 0.7, 0.2], [0.72, 0.7, 0.78],
+                            [0.91, 0.89, 0.94], [0.31, 0.31, 0.38],
+                        ];
+                        for p in &presets {
+                            let c = egui::Color32::from_rgb((p[0]*255.0) as u8, (p[1]*255.0) as u8, (p[2]*255.0) as u8);
+                            let btn = egui::Button::new("  ").fill(c);
+                            if ui.add(btn).clicked() {
+                                self.color_picker_rgb = *p;
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button("确定").clicked() {
+                            self.apply_color_picker();
+                        }
+                        if ui.button("取消").clicked() {
+                            self.show_color_picker = false;
+                        }
+                    });
+                });
         }
 
         // ═══ 左侧面板 ═══
@@ -58,7 +104,7 @@ impl eframe::App for DanmakuApp {
                             let c = DanmakuApp::color_from_hex(&self.new_color_hex);
                             let btn = egui::Button::new(egui::RichText::new(&self.new_color_hex).color(c));
                             if ui.add(btn).clicked() {
-                                // 简单弹出：输入 hex
+                                self.open_color_picker("new");
                             }
                             if ui.button("添加").clicked() && !self.new_text.is_empty() {
                                 self.text_list.push(crate::app::TextItem {
@@ -80,12 +126,8 @@ impl eframe::App for DanmakuApp {
                                 }
                             });
                         }
-                        if let Some(i) = to_delete {
-                            self.text_list.remove(i);
-                        }
-                        if ui.button("清空").clicked() {
-                            self.text_list.clear();
-                        }
+                        if let Some(i) = to_delete { self.text_list.remove(i); }
+                        if ui.button("清空").clicked() { self.text_list.clear(); }
                     });
 
                     // ── 生成参数 ──
@@ -122,9 +164,7 @@ impl eframe::App for DanmakuApp {
                             ui.label("透明度:");
                             ui.add(egui::DragValue::new(&mut self.auto_alpha).speed(0.05).range(0.1..=1.0));
                         });
-                        if ui.button("自动生成叠加").clicked() {
-                            self.auto_generate();
-                        }
+                        if ui.button("自动生成叠加").clicked() { self.auto_generate(); }
                     });
 
                     // ── 叠加列表 ──
@@ -141,9 +181,7 @@ impl eframe::App for DanmakuApp {
                                 if ui.selectable_label(is_sel, egui::RichText::new(&label).color(c)).clicked() {
                                     selected = Some(i);
                                 }
-                                if ui.small_button("🗑").clicked() {
-                                    to_delete = Some(i);
-                                }
+                                if ui.small_button("🗑").clicked() { to_delete = Some(i); }
                             });
                         }
                         if let Some(i) = selected { self.select_overlay(i); }
@@ -171,7 +209,9 @@ impl eframe::App for DanmakuApp {
                             ui.label("颜色:");
                             let c = DanmakuApp::color_from_hex(&self.ed_color_hex);
                             let btn = egui::Button::new(egui::RichText::new(&self.ed_color_hex).color(c));
-                            if ui.add(btn).clicked() {}
+                            if ui.add(btn).clicked() {
+                                self.open_color_picker("ed");
+                            }
                         });
                         ui.horizontal(|ui| {
                             ui.label("X:");
@@ -203,10 +243,7 @@ impl eframe::App for DanmakuApp {
                 // ── 导出 ──
                 ui.separator();
                 ui.label(egui::RichText::new(&self.status).small().color(TEXT_DIM));
-
-                if ui.button("导出视频").clicked() {
-                    self.export_video();
-                }
+                if ui.button("导出视频").clicked() { self.export_video(); }
                 ui.horizontal(|ui| {
                     let save_btn = egui::Button::new("保存项目").fill(SAVE_COLOR);
                     if ui.add(save_btn).clicked() { self.export_json(); }
@@ -217,6 +254,7 @@ impl eframe::App for DanmakuApp {
 
         // ═══ 右侧预览 ═══
         egui::CentralPanel::default().show(ctx, |ui| {
+            // 播放控制
             ui.horizontal(|ui| {
                 let play_text = if self.playing { "暂停" } else { "播放" };
                 if ui.button(play_text).clicked() {
@@ -226,13 +264,18 @@ impl eframe::App for DanmakuApp {
                     } else {
                         self.playing = true;
                         self.play_start = Some(std::time::Instant::now());
+                        self.preview_time_offset = self.preview_time;
                     }
                 }
                 ui.checkbox(&mut self.show_overlay_text, "叠加文字");
                 ui.label("时间:");
                 let max_time = self.video_info.as_ref().map(|i| i.duration).unwrap_or(10.0);
-                ui.add(egui::Slider::new(&mut self.preview_time, 0.0..=max_time));
-                ui.label(format!("{:.1}s", self.preview_time));
+                let slider_resp = ui.add(egui::Slider::new(&mut self.preview_time, 0.0..=max_time).show_value(false));
+                if slider_resp.changed() {
+                    self.playing = false;
+                    self.play_start = None;
+                }
+                ui.label(format!("{:.1}s", t));
             });
 
             // 预览画布
@@ -241,9 +284,50 @@ impl eframe::App for DanmakuApp {
             let r = resp.rect;
 
             painter.rect_filled(r, 0.0, egui::Color32::from_rgb(12, 10, 18));
-            painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(68, 68, 68)));
 
-            let t = now;
+            // 解码并显示视频帧
+            if !self.video_path.is_empty() {
+                let rounded = (t * 2.0).round() / 2.0;
+                if (rounded - self.last_decoded_time).abs() > 0.4 {
+                    if let Some(raw) = self.decode_frame(rounded) {
+                        let info = self.video_info.as_ref().unwrap();
+                        let img = image::RgbaImage::from_raw(info.width, info.height, raw);
+                        if let Some(img) = img {
+                            let dynamic = image::DynamicImage::ImageRgba8(img);
+                            let rgba = dynamic.to_rgba8();
+                            let pixels: Vec<u8> = rgba.into_raw();
+                            let tex = ctx.load_texture(
+                                format!("frame_{:.1}", rounded),
+                                egui::ColorImage::from_rgba_unmultiplied(
+                                    [info.width as usize, info.height as usize],
+                                    &pixels,
+                                ),
+                                egui::TextureOptions::LINEAR,
+                            );
+                            self.frame_texture = Some(tex);
+                            self.last_decoded_time = rounded;
+                        }
+                    }
+                }
+
+                if let Some(tex) = &self.frame_texture {
+                    let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
+                    let vh = self.video_info.as_ref().map(|i| i.height as f32).unwrap_or(720.0);
+                    let scale = (r.width() / vw).min(r.height() / vh);
+                    let draw_w = vw * scale;
+                    let draw_h = vh * scale;
+                    let ox = r.min.x + (r.width() - draw_w) / 2.0;
+                    let oy = r.min.y + (r.height() - draw_h) / 2.0;
+                    let img_rect = egui::Rect::from_min_size(egui::pos2(ox, oy), egui::vec2(draw_w, draw_h));
+                    painter.image(tex.id(), img_rect, egui::Rect::from_min_max(
+                        egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0),
+                    ), egui::Color32::WHITE);
+                }
+            } else {
+                painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(68, 68, 68)));
+            }
+
+            // 绘制叠加文字
             let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
             let vh = self.video_info.as_ref().map(|i| i.height as f32).unwrap_or(720.0);
             let scale = (r.width() / vw).min(r.height() / vh);

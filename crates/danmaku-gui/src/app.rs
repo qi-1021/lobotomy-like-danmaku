@@ -2,6 +2,7 @@ use danmaku_core::overlay::{TextOverlay, OverlayConfig};
 use danmaku_core::font::FontCache;
 use danmaku_core::generator::generate_overlays;
 use danmaku_core::video::VideoInfo;
+use std::collections::HashMap;
 
 pub struct TextItem {
     pub text: String,
@@ -50,9 +51,19 @@ pub struct DanmakuApp {
 
     // 预览
     pub preview_time: f64,
+    pub preview_time_offset: f64,
     pub show_overlay_text: bool,
     pub playing: bool,
     pub play_start: Option<std::time::Instant>,
+
+    // 帧缓存
+    pub frame_texture: Option<egui::TextureHandle>,
+    pub last_decoded_time: f64,
+
+    // 颜色弹窗
+    pub show_color_picker: bool,
+    pub color_picker_target: String, // "new" or "ed"
+    pub color_picker_rgb: [f32; 3],
 
     // 状态
     pub status: String,
@@ -100,9 +111,17 @@ impl Default for DanmakuApp {
             font_cache,
 
             preview_time: 0.0,
+            preview_time_offset: 0.0,
             show_overlay_text: true,
             playing: false,
             play_start: None,
+
+            frame_texture: None,
+            last_decoded_time: -1.0,
+
+            show_color_picker: false,
+            color_picker_target: String::new(),
+            color_picker_rgb: [0.7, 0.2, 0.2],
 
             status: "就绪".to_string(),
             processing: false,
@@ -140,6 +159,45 @@ impl DanmakuApp {
         egui::Color32::from_rgb((c[0] * 255.0) as u8, (c[1] * 255.0) as u8, (c[2] * 255.0) as u8)
     }
 
+    pub fn open_color_picker(&mut self, target: &str) {
+        self.color_picker_target = target.to_string();
+        let hex = if target == "new" { &self.new_color_hex } else { &self.ed_color_hex };
+        self.color_picker_rgb = Self::hex_to_rgb01(hex);
+        self.show_color_picker = true;
+    }
+
+    pub fn apply_color_picker(&mut self) {
+        let hex = Self::rgb01_to_hex(self.color_picker_rgb);
+        if self.color_picker_target == "new" {
+            self.new_color_hex = hex;
+        } else {
+            self.ed_color_hex = hex;
+        }
+        self.show_color_picker = false;
+    }
+
+    pub fn decode_frame(&self, t: f64) -> Option<Vec<u8>> {
+        if self.video_path.is_empty() { return None; }
+        let info = self.video_info.as_ref()?;
+        let w = info.width;
+        let h = info.height;
+
+        let output = std::process::Command::new("ffmpeg")
+            .args(["-ss", &format!("{:.3}", t), "-i", &self.video_path,
+                   "-vframes", "1", "-f", "rawvideo", "-pix_fmt", "rgba",
+                   "-s", &format!("{}x{}", w, h), "-"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output().ok()?;
+
+        let expected = (w * h * 4) as usize;
+        if output.stdout.len() >= expected {
+            Some(output.stdout[..expected].to_vec())
+        } else {
+            None
+        }
+    }
+
     pub fn import_video(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("视频", &["mp4", "mov", "avi", "mkv", "webm"])
@@ -153,6 +211,8 @@ impl DanmakuApp {
                         info.width, info.height, info.fps, info.duration);
                     self.video_info = Some(info);
                     self.video_path = p;
+                    self.frame_texture = None;
+                    self.last_decoded_time = -1.0;
                 }
                 Err(e) => self.status = format!("错误: {}", e),
             }
