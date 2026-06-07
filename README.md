@@ -1,6 +1,6 @@
 # Lobotomy Corporation - Core Suppression Danmaku
 
-> **master 分支为自留地，稳定版本请查看 [Releases](https://github.com/qi-1021/lobotomy-like-danmaku/releases)**
+**心机拉萨有，齐抛洒有，戏骨细泡有，内购泡有，那噶够洗泡有......**
 
 模拟脑叶公司核心抑制效果的弹幕视频工具。将指定文字以随机位置、角度、大小叠加到视频上，支持打字机效果和渐显/渐隐。
 
