@@ -2,10 +2,6 @@
 
 Rust 原生版本，模拟脑叶公司核心抑制效果的弹幕视频工具。
 
-**鬼知道会有什么bug，反正我要被AI搞崩溃了。**
-
-**要是那些AI有部长一半好用，我早就解脱了。**
-
 ## 构建
 
 ```bash
@@ -17,6 +13,29 @@ cargo build --release
 ```
 
 ## 使用
+
+### GUI（推荐）
+
+```bash
+# macOS / Linux
+./run_rust.sh
+
+# Windows
+run_rust.bat
+```
+
+GUI 功能：
+- 视频导入 + 实时预览（帧解码 + 叠加渲染）
+- 文字列表管理（添加/删除/清空/改颜色）
+- 颜色选择器（RGB 滑块 + HEX 输入 + 8 色快捷）
+- 生成参数调节（密度/并发/字号/角度/速度/留存/透明度）
+- 叠加列表（选中/删除/清空）
+- 手动编辑（全部参数）
+- 导出视频（进度条 + 百分比）
+- 保存/加载项目 JSON
+- 导出/导入预设
+- 画布点击获取坐标
+- Delete 键快捷删除
 
 ### CLI
 
@@ -35,17 +54,7 @@ cargo build --release
   --density 0.5 --max-active 6
 ```
 
-### 启动脚本
-
-```bash
-# macOS / Linux
-./run_rust.sh -i input.mp4 -o output.mp4 --text "控制部"
-
-# Windows
-run_rust.bat -i input.mp4 -o output.mp4 --text "控制部"
-```
-
-## 参数
+### CLI 参数
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
@@ -82,7 +91,8 @@ run_rust.bat -i input.mp4 -o output.mp4 --text "控制部"
 
 ```
 crates/
-├── danmaku-core/    # 核心引擎（渲染、叠加生成、视频处理）
+├── danmaku-core/    # 核心引擎（渲染、叠加生成、视频处理、TTC 字体支持）
 ├── danmaku-cli/     # CLI 工具
-└── danmaku-gui/     # GUI（开发中）
+└── danmaku-gui/     # GUI（eframe/egui，已完成）
 ```
+
