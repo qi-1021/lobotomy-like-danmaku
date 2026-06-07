@@ -65,8 +65,9 @@ pub struct DanmakuApp {
 
     // 颜色弹窗
     pub show_color_picker: bool,
-    pub color_picker_target: String,
+    pub color_picker_target: String, // "new", "ed", "list"
     pub color_picker_rgb: [f32; 3],
+    pub color_picker_list_idx: Option<usize>,
 
     // 导出进度
     pub export_rx: Option<mpsc::Receiver<String>>,
@@ -131,6 +132,7 @@ impl Default for DanmakuApp {
             show_color_picker: false,
             color_picker_target: String::new(),
             color_picker_rgb: [0.7, 0.2, 0.2],
+            color_picker_list_idx: None,
 
             export_rx: None,
             export_progress: String::new(),
@@ -180,10 +182,18 @@ impl DanmakuApp {
 
     pub fn apply_color_picker(&mut self) {
         let hex = Self::rgb01_to_hex(self.color_picker_rgb);
-        if self.color_picker_target == "new" {
-            self.new_color_hex = hex;
-        } else {
-            self.ed_color_hex = hex;
+        match self.color_picker_target.as_str() {
+            "new" => self.new_color_hex = hex,
+            "ed" => self.ed_color_hex = hex,
+            "list" => {
+                if let Some(idx) = self.color_picker_list_idx {
+                    if idx < self.text_list.len() {
+                        self.text_list[idx].color_hex = hex;
+                    }
+                }
+                self.color_picker_list_idx = None;
+            }
+            _ => {}
         }
         self.show_color_picker = false;
     }
@@ -432,6 +442,75 @@ impl DanmakuApp {
                             self.overlays.push(o);
                         }
                         self.status = format!("已加载 {} 条", self.overlays.len());
+                    }
+                }
+                Err(e) => self.status = format!("加载失败: {}", e),
+            }
+        }
+    }
+
+    pub fn export_preset(&mut self) {
+        if self.text_list.is_empty() {
+            self.status = "没有文字列表可导出".to_string();
+            return;
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("JSON", &["json"])
+            .save_file()
+        {
+            let preset = serde_json::json!({
+                "text_list": self.text_list.iter().map(|item| {
+                    serde_json::json!({"text": item.text, "color": item.color_hex})
+                }).collect::<Vec<_>>(),
+                "params": {
+                    "density": self.density,
+                    "max_active": self.max_active,
+                    "size_min": self.size_min,
+                    "size_max": self.size_max,
+                    "angle_min": self.angle_min,
+                    "angle_max": self.angle_max,
+                    "type_speed": self.type_speed,
+                    "post_hold": self.post_hold,
+                    "seed": self.seed,
+                }
+            });
+            match std::fs::write(path.clone(), serde_json::to_string_pretty(&preset).unwrap()) {
+                Ok(()) => self.status = "预设已保存".to_string(),
+                Err(e) => self.status = format!("保存失败: {}", e),
+            }
+        }
+    }
+
+    pub fn import_preset(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("JSON", &["json"])
+            .pick_file()
+        {
+            match std::fs::read_to_string(path) {
+                Ok(data) => {
+                    if let Ok(preset) = serde_json::from_str::<serde_json::Value>(&data) {
+                        // 恢复文字列表
+                        if let Some(list) = preset["text_list"].as_array() {
+                            self.text_list.clear();
+                            for item in list {
+                                let text = item["text"].as_str().unwrap_or("").to_string();
+                                let color = item["color"].as_str().unwrap_or("#b43c3c").to_string();
+                                self.text_list.push(TextItem { text, color_hex: color });
+                            }
+                        }
+                        // 恢复参数
+                        if let Some(p) = preset.get("params") {
+                            self.density = p["density"].as_f64().unwrap_or(0.45);
+                            self.max_active = p["max_active"].as_u64().unwrap_or(4) as usize;
+                            self.size_min = p["size_min"].as_f64().unwrap_or(18.0) as f32;
+                            self.size_max = p["size_max"].as_f64().unwrap_or(32.0) as f32;
+                            self.angle_min = p["angle_min"].as_f64().unwrap_or(-14.0) as f32;
+                            self.angle_max = p["angle_max"].as_f64().unwrap_or(14.0) as f32;
+                            self.type_speed = p["type_speed"].as_f64().unwrap_or(0.06);
+                            self.post_hold = p["post_hold"].as_f64().unwrap_or(1.5);
+                            self.seed = p["seed"].as_u64().unwrap_or(42);
+                        }
+                        self.status = "预设已加载".to_string();
                     }
                 }
                 Err(e) => self.status = format!("加载失败: {}", e),

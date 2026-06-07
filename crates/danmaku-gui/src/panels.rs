@@ -162,14 +162,22 @@ impl eframe::App for DanmakuApp {
                         });
 
                         let mut to_delete = None;
+                        let mut change_color = None;
                         for (i, item) in self.text_list.iter().enumerate() {
                             ui.horizontal(|ui| {
                                 let c = DanmakuApp::color_from_hex(&item.color_hex);
                                 ui.label(egui::RichText::new(&item.text).color(c));
+                                if ui.small_button("色").clicked() {
+                                    change_color = Some(i);
+                                }
                                 if ui.small_button("🗑").clicked() {
                                     to_delete = Some(i);
                                 }
                             });
+                        }
+                        if let Some(i) = change_color {
+                            self.open_color_picker("list");
+                            self.color_picker_list_idx = Some(i);
                         }
                         if let Some(i) = to_delete { self.text_list.remove(i); }
                         if ui.button("清空").clicked() { self.text_list.clear(); }
@@ -305,6 +313,10 @@ impl eframe::App for DanmakuApp {
                     let load_btn = egui::Button::new("加载项目").fill(LOAD_COLOR);
                     if ui.add(load_btn).clicked() { self.import_json(); }
                 });
+                ui.horizontal(|ui| {
+                    if ui.button("导出预设").clicked() { self.export_preset(); }
+                    if ui.button("导入预设").clicked() { self.import_preset(); }
+                });
             });
 
         // ═══ 右侧预览 ═══
@@ -343,9 +355,35 @@ impl eframe::App for DanmakuApp {
 
             // 预览画布
             let available = ui.available_size();
-            let (resp, painter) = ui.allocate_painter(available, egui::Sense::hover());
+            let (resp, painter) = ui.allocate_painter(available, egui::Sense::click());
             let r = resp.rect;
             painter.rect_filled(r, 0.0, egui::Color32::from_rgb(12, 10, 18));
+
+            // 画布点击获取坐标
+            if resp.clicked() {
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
+                    let vh = self.video_info.as_ref().map(|i| i.height as f32).unwrap_or(720.0);
+                    let scale = (r.width() / vw).min(r.height() / vh);
+                    let ox = r.min.x + (r.width() - vw * scale) / 2.0;
+                    let oy = r.min.y + (r.height() - vh * scale) / 2.0;
+                    let vx = (pos.x - ox) / scale;
+                    let vy = (pos.y - oy) / scale;
+                    if vx >= 0.0 && vx <= vw && vy >= 0.0 && vy <= vh {
+                        self.status = format!("位置: ({}, {})", vx as i32, vy as i32);
+                    }
+                }
+            }
+
+            // Delete 键删除选中叠加
+            if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+                if let Some(idx) = self.selected_overlay {
+                    if idx < self.overlays.len() {
+                        self.overlays.remove(idx);
+                        self.selected_overlay = None;
+                    }
+                }
+            }
 
             // 播放时从 pipe 读帧
             if self.playing {
