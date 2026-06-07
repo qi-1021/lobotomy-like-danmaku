@@ -29,7 +29,9 @@ impl eframe::App for DanmakuApp {
         // 检查导出进度
         let mut remove_rx = false;
         if let Some(rx) = &self.export_rx {
+            let mut got_update = false;
             while let Ok(msg) = rx.try_recv() {
+                got_update = true;
                 if msg == "完成" {
                     self.processing = false;
                     self.export_progress = "导出完成".to_string();
@@ -40,8 +42,10 @@ impl eframe::App for DanmakuApp {
                     remove_rx = true;
                 } else {
                     self.export_progress = msg;
-                    ctx.request_repaint();
                 }
+            }
+            if got_update || self.processing {
+                ctx.request_repaint();
             }
         }
         if remove_rx { self.export_rx = None; }
@@ -285,9 +289,16 @@ impl eframe::App for DanmakuApp {
                 ui.separator();
                 ui.label(egui::RichText::new(&self.status).small().color(TEXT_DIM));
                 if !self.export_progress.is_empty() {
-                    ui.label(egui::RichText::new(&self.export_progress).small().color(egui::Color32::YELLOW));
+                    ui.label(egui::RichText::new(&self.export_progress).strong().color(egui::Color32::YELLOW));
                 }
-                if ui.button("导出视频").clicked() { self.export_video(); }
+                if self.processing {
+                    // 导出中时显示进度条动画
+                    ui.spinner();
+                }
+                let export_btn_text = if self.processing { "导出中..." } else { "导出视频" };
+                if ui.add_enabled(!self.processing, egui::Button::new(export_btn_text)).clicked() {
+                    self.export_video();
+                }
                 ui.horizontal(|ui| {
                     let save_btn = egui::Button::new("保存项目").fill(SAVE_COLOR);
                     if ui.add(save_btn).clicked() { self.export_json(); }

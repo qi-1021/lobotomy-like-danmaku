@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Write;
 use anyhow::Result;
 
 #[derive(Debug, Clone)]
@@ -36,11 +36,13 @@ pub fn process_video(
 ) -> Result<()> {
     use image::RgbaImage;
     use crate::render::render_frame;
+    use std::io::Read;
 
     let info = probe_video(input)?;
     let total_frames = (info.duration * fps).ceil() as u64;
     let frame_size = (width * height * 4) as usize;
 
+    // Step 1: 解码原始视频
     let mut decoder = std::process::Command::new("ffmpeg")
         .args(["-i", input, "-f", "rawvideo", "-pix_fmt", "rgba",
                "-s", &format!("{}x{}", width, height), "-an", "-"])
@@ -48,14 +50,14 @@ pub fn process_video(
         .stderr(std::process::Stdio::null())
         .spawn()?;
 
-    let tmp = format!("{}.tmp.mp4", output);
+    // Step 2: 编码渲染后的帧到临时视频（纯视频，无音频）
+    let tmp_video = format!("{}.video.tmp.mp4", output);
     let mut encoder = std::process::Command::new("ffmpeg")
         .args(["-y", "-f", "rawvideo", "-pix_fmt", "rgba",
                "-s", &format!("{}x{}", width, height), "-r", &fps.to_string(),
                "-i", "pipe:0",
-               "-i", input, "-map", "0:v", "-map", "1:a?",
                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
-               "-c:a", "aac", "-shortest", &tmp])
+               "-an", &tmp_video])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -68,8 +70,15 @@ pub fn process_video(
     let mut frame_idx = 0u64;
 
     loop {
-        let bytes_read = decoder_stdout.read(&mut frame_buf)?;
-        if bytes_read < frame_size { break; }
+        let mut total_read = 0;
+        while total_read < frame_size {
+            match decoder_stdout.read(&mut frame_buf[total_read..]) {
+                Ok(0) => break,
+                Ok(n) => total_read += n,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        if total_read < frame_size { break; }
 
         let t = frame_idx as f64 / fps;
         let mut img = RgbaImage::from_raw(width, height, frame_buf.clone())
@@ -85,6 +94,22 @@ pub fn process_video(
     decoder.wait()?;
     encoder.wait()?;
 
-    std::fs::rename(&tmp, output)?;
+    // Step 3: 合并视频+音频
+    let status = std::process::Command::new("ffmpeg")
+        .args(["-y", "-i", &tmp_video, "-i", input,
+               "-map", "0:v", "-map", "1:a?",
+               "-c:v", "copy", "-c:a", "aac", "-shortest",
+               output])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()?;
+
+    // 清理临时文件
+    let _ = std::fs::remove_file(&tmp_video);
+
+    if !status.success() {
+        anyhow::bail!("ffmpeg merge failed");
+    }
+
     Ok(())
 }
