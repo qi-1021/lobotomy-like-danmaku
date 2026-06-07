@@ -36,10 +36,17 @@ scoop install ffmpeg
 
 ### 字体
 
-工具会自动查找系统字体，也可将字体文件放入 `fonts_proper/` 目录：
+需要将字体文件放入 `fonts_proper/` 目录：
 
-- **中文**：PingFang SC / Microsoft YaHei / Noto Sans CJK
-- **拉丁**：Norwester / Arial / DejaVu Sans
+```bash
+mkdir -p fonts_proper
+# 将 PingFang.ttc 或其他 CJK 字体放入此目录
+# macOS 系统字体位置：/System/Library/Fonts/PingFang.ttc
+cp /System/Library/Fonts/PingFang.ttc fonts_proper/
+```
+
+- **中文**：PingFang.ttc（推荐）或其他 CJK 字体
+- **拉丁**：Norwester.ttf 或其他拉丁字体
 
 ## 快速开始
 
