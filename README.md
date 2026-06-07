@@ -1,5 +1,7 @@
 # Lobotomy Corporation - Core Suppression Danmaku
 
+> **master 分支为自留地，稳定版本请查看 [Releases](https://github.com/qi-1021/lobotomy-like-danmaku/releases)**
+
 模拟脑叶公司核心抑制效果的弹幕视频工具。将指定文字以随机位置、角度、大小叠加到视频上，支持打字机效果和渐显/渐隐。
 
 ## 特性
@@ -35,17 +37,18 @@ scoop install ffmpeg
 
 ### 字体
 
-需要将字体文件放入 `fonts_proper/` 目录：
+推荐将字体放入 `fonts_proper/` 目录（优先使用），未放入时会自动查找系统字体：
 
 ```bash
 mkdir -p fonts_proper
-# 将 PingFang.ttc 或其他 CJK 字体放入此目录
-# macOS 系统字体位置：/System/Library/Fonts/PingFang.ttc
+# macOS
 cp /System/Library/Fonts/PingFang.ttc fonts_proper/
+# 或使用其他 CJK 字体（Noto Sans CJK、Microsoft YaHei 等）
 ```
 
-- **中文**：PingFang.ttc（推荐）或其他 CJK 字体
-- **拉丁**：Norwester.ttf 或其他拉丁字体
+自动查找顺序：
+1. `fonts_proper/` 目录内的字体（优先）
+2. 系统字体（macOS: PingFang, Windows: MSYaHei/SimHei, Linux: NotoSansCJK/WenQuanYi）
 
 ## 快速开始
 

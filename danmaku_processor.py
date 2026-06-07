@@ -4,59 +4,103 @@ Core Suppression Danmaku Video Processor
 Imports video, overlays random text at various positions/angles, exports result.
 """
 
-import os, sys, json, math, random, subprocess, struct
+import os, sys, json, math, random, subprocess, struct, platform
 from collections import namedtuple
 from PIL import Image, ImageDraw, ImageFont
 
 VideoInfo = namedtuple('VideoInfo', ['width', 'height', 'fps', 'duration'])
 
-# 内置字体目录
+# 内置字体目录（优先）
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = os.path.join(SCRIPT_DIR, "fonts_proper")
 
+def _find_system_font(names):
+    """在系统字体目录中查找字体（兜底）"""
+    system = platform.system()
+    if system == "Darwin":
+        search_dirs = ["/System/Library/Fonts", "/Library/Fonts",
+                       os.path.expanduser("~/Library/Fonts")]
+    elif system == "Windows":
+        search_dirs = [os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")]
+    else:
+        search_dirs = ["/usr/share/fonts", "/usr/local/share/fonts",
+                       os.path.expanduser("~/.fonts"),
+                       os.path.expanduser("~/.local/share/fonts")]
+    
+    for d in search_dirs:
+        if not os.path.isdir(d):
+            continue
+        for root, _, files in os.walk(d):
+            for name in names:
+                for ext in ('.ttf', '.otf', '.ttc'):
+                    target = name + ext
+                    for f in files:
+                        if f.lower() == target.lower():
+                            return os.path.join(root, f)
+    return None
+
 def load_fonts():
-    """Load all available fonts from fonts_proper directory"""
+    """Load fonts: bundled first, then system fallback"""
     fonts = {}
-    if not os.path.isdir(FONT_DIR):
-        return fonts
-    for fname in os.listdir(FONT_DIR):
-        if fname.lower().endswith(('.ttf', '.otf', '.ttc')):
-            try:
-                fonts[fname] = ImageFont.truetype(os.path.join(FONT_DIR, fname), 24)
-            except:
-                pass
+    # 1. 内置字体
+    if os.path.isdir(FONT_DIR):
+        for fname in os.listdir(FONT_DIR):
+            if fname.lower().endswith(('.ttf', '.otf', '.ttc')):
+                try:
+                    fonts[fname] = ImageFont.truetype(os.path.join(FONT_DIR, fname), 24)
+                except:
+                    pass
+    # 2. 系统字体兜底
+    if not fonts:
+        for name in ['PingFang', 'msyh', 'Microsoft YaHei', 'SimHei',
+                      'NotoSansCJK', 'NotoSansSC', 'WenQuanYiMicroHei',
+                      'Arial', 'Helvetica', 'DejaVuSans']:
+            path = _find_system_font([name])
+            if path:
+                try:
+                    fonts[os.path.basename(path)] = ImageFont.truetype(path, 24)
+                except:
+                    pass
     return fonts
 
 def pick_font(text, font_size=24):
-    """Pick best font for text from fonts_proper directory
-    
-    For CJK: uses PingFang.ttc (index 3 = PingFang SC)
-    For Latin: uses first available font
-    """
+    """Pick best font: bundled first, system fallback"""
     has_cjk = any('\u4e00' <= c <= '\u9fff' or '\uac00' <= c <= '\ud7af' for c in text)
     
-    if not os.path.isdir(FONT_DIR):
-        return ImageFont.load_default()
-    
-    # 找可用字体
+    # 1. 从内置目录找
     cjk_font = None
     latin_font = None
-    for fname in os.listdir(FONT_DIR):
-        fl = fname.lower()
-        if not fl.endswith(('.ttf', '.otf', '.ttc')):
-            continue
-        fpath = os.path.join(FONT_DIR, fname)
-        if 'pingfang' in fl or 'noto' in fl or 'source' in fl:
-            cjk_font = (fpath, 3 if 'pingfang' in fl else 0)
-        elif 'norwester' in fl or 'arial' in fl or 'helvetica' in fl:
-            latin_font = (fpath, 0)
-        elif latin_font is None:
-            latin_font = (fpath, 0)
+    if os.path.isdir(FONT_DIR):
+        for fname in os.listdir(FONT_DIR):
+            fl = fname.lower()
+            if not fl.endswith(('.ttf', '.otf', '.ttc')):
+                continue
+            fpath = os.path.join(FONT_DIR, fname)
+            if 'pingfang' in fl or 'noto' in fl or 'source' in fl:
+                cjk_font = (fpath, 3 if 'pingfang' in fl else 0)
+            elif 'norwester' in fl or 'arial' in fl or 'helvetica' in fl:
+                latin_font = (fpath, 0)
+            elif latin_font is None:
+                latin_font = (fpath, 0)
+    
+    # 2. 系统字体兜底
+    if cjk_font is None:
+        sys_cjk = _find_system_font(['PingFang', 'msyh', 'Microsoft YaHei',
+                                      'SimHei', 'NotoSansCJK', 'NotoSansSC',
+                                      'WenQuanYiMicroHei'])
+        if sys_cjk:
+            idx = 3 if 'pingfang' in sys_cjk.lower() else 0
+            cjk_font = (sys_cjk, idx)
+    if latin_font is None:
+        sys_latin = _find_system_font(['Helvetica', 'Arial', 'DejaVuSans',
+                                        'LiberationSans', 'NotoSans'])
+        if sys_latin:
+            latin_font = (sys_latin, 0)
     
     if has_cjk and cjk_font:
         font_path, index = cjk_font
     elif latin_font:
-        font_path, index = latin_font
+        font_path, index = latin_font, 0
     elif cjk_font:
         font_path, index = cjk_font
     else:
