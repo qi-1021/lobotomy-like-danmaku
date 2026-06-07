@@ -2,39 +2,54 @@ mod app;
 mod panels;
 
 use egui::FontDefinitions;
-use std::path::Path;
 
 fn load_cjk_font() -> Option<Vec<u8>> {
-    // 1. 从 fonts_proper/ 找
-    let font_dir = Path::new("fonts_proper");
-    if font_dir.is_dir() {
-        for entry in std::fs::read_dir(font_dir).ok()? {
-            let entry = entry.ok()?;
-            let path = entry.path();
-            let name = path.file_name()?.to_string_lossy().to_lowercase();
-            if name.contains("pingfang") || name.contains("noto") || name.contains("source")
-                || name.contains("msyh") || name.contains("simhei") || name.contains("wqy")
-            {
-                if let Ok(data) = std::fs::read(&path) {
-                    return Some(data);
-                }
-            }
-        }
+    let mut db = fontdb::Database::new();
+    
+    // 加载 fonts_proper 目录
+    let _ = db.load_fonts_dir("fonts_proper");
+    
+    // 加载系统字体目录
+    let system_dirs: Vec<&str> = match std::env::consts::OS {
+        "macos" => vec![
+            "/System/Library/Fonts",
+            "/System/Library/Fonts/Supplemental",
+            "/Library/Fonts",
+        ],
+        "windows" => vec!["C:\\Windows\\Fonts"],
+        _ => vec![
+            "/usr/share/fonts",
+            "/usr/local/share/fonts",
+        ],
+    };
+    for dir in system_dirs {
+        let _ = db.load_fonts_dir(dir);
     }
-    // 2. macOS 系统字体
-    let candidates = [
-        "/System/Library/Fonts/PingFang.ttc",
-        "/System/Library/Fonts/STHeiti Light.ttc",
-        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        "/Library/Fonts/Arial Unicode.ttf",
-        "C:\\Windows\\Fonts\\msyh.ttc",
-        "C:\\Windows\\Fonts\\simhei.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-    ];
-    for p in &candidates {
-        if let Ok(data) = std::fs::read(p) {
-            return Some(data);
+
+    // 找 CJK 字体
+    let query = fontdb::Query {
+        families: &[
+            fontdb::Family::Name("PingFang SC"),
+            fontdb::Family::Name("Heiti SC"),
+            fontdb::Family::Name("STHeiti"),
+            fontdb::Family::Name("Hiragino Sans GB"),
+            fontdb::Family::Name("Microsoft YaHei"),
+            fontdb::Family::Name("SimHei"),
+            fontdb::Family::Name("Noto Sans CJK SC"),
+            fontdb::Family::Name("Noto Sans SC"),
+            fontdb::Family::Name("WenQuanYi Micro Hei"),
+            fontdb::Family::SansSerif,
+        ],
+        ..Default::default()
+    };
+
+    if let Some(id) = db.query(&query) {
+        let mut font_data = Vec::new();
+        db.with_face_data(id, |data, _index| {
+            font_data = data.to_vec();
+        });
+        if !font_data.is_empty() {
+            return Some(font_data);
         }
     }
     None
@@ -54,11 +69,9 @@ fn main() {
         "Lobotomy Danmaku",
         options,
         Box::new(|cc| {
-            // 注入 CJK 字体
             if let Some(font_data) = load_cjk_font() {
                 let mut fonts = FontDefinitions::default();
                 fonts.font_data.insert("cjk".to_owned(), egui::FontData::from_owned(font_data));
-                // 把 CJK 字体加到所有 font family 的 fallback 列表末尾
                 for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
                     if let Some(list) = fonts.families.get_mut(&family) {
                         list.push("cjk".to_owned());
