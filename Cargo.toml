@@ -1,18 +1,6 @@
-[package]
-name = "lobotomy-danmaku"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-image = "0.25"
-rand = "0.8"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-eframe = "0.33"
-ab_glyph = "0.2"
-clap = { version = "4", features = ["derive"] }
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
-pollster = "0.4"
-log = "0.4"
-env_logger = "0.11"
-rfd = "0.15"
+[workspace]
+members = [
+    "crates/danmaku-core",
+    "crates/danmaku-cli",
+]
+resolver = "2"
