@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+target/
+Cargo.lock
+*.json
+!user_texts_example.json
+/tmp/
+fonts_proper/
