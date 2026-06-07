@@ -78,9 +78,7 @@ pub fn process_video(
         encoder_stdin.write_all(img.as_raw())?;
 
         frame_idx += 1;
-        if frame_idx % 30 == 0 {
-            if let Some(cb) = progress_cb { cb(frame_idx, total_frames); }
-        }
+        if let Some(cb) = progress_cb { cb(frame_idx, total_frames); }
     }
 
     drop(encoder_stdin);

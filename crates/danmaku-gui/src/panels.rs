@@ -39,7 +39,7 @@ impl eframe::App for DanmakuApp {
                     self.export_progress = msg;
                     remove_rx = true;
                 } else {
-                    self.export_progress = format!("导出中 {}", msg);
+                    self.export_progress = msg;
                     ctx.request_repaint();
                 }
             }
@@ -77,9 +77,16 @@ impl eframe::App for DanmakuApp {
                     );
                     let (resp, painter) = ui.allocate_painter(egui::vec2(200.0, 30.0), egui::Sense::hover());
                     painter.rect_filled(resp.rect, 4.0, c);
-                    // hex 显示
-                    let hex = DanmakuApp::rgb01_to_hex(self.color_picker_rgb);
-                    ui.label(egui::RichText::new(&hex).monospace());
+                    // hex 输入
+                    let mut hex_input = DanmakuApp::rgb01_to_hex(self.color_picker_rgb);
+                    ui.horizontal(|ui| {
+                        ui.label("HEX:");
+                        if ui.text_edit_singleline(&mut hex_input).changed() {
+                            if let Some(c) = parse_hex_color(&hex_input) {
+                                self.color_picker_rgb = c;
+                            }
+                        }
+                    });
                     // 常用颜色快捷
                     ui.label("快捷:");
                     ui.horizontal(|ui| {
@@ -426,5 +433,17 @@ impl DanmakuApp {
             );
             self.frame_texture = Some(tex);
         }
+    }
+}
+
+fn parse_hex_color(hex: &str) -> Option<[f32; 3]> {
+    let hex = hex.trim().trim_start_matches('#');
+    if hex.len() >= 6 {
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        Some([r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0])
+    } else {
+        None
     }
 }

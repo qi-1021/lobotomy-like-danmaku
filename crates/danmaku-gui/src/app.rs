@@ -469,11 +469,16 @@ impl DanmakuApp {
             let mut fc = FontCache::new();
             let _ = fc.load_from_dir(std::path::Path::new(&font_dir));
             let tx_cb = tx.clone();
+            let total = overlays.len();
             let result = danmaku_core::video::process_video(
                 &input, &output, &overlays, &fc,
                 info.width, info.height, info.fps,
-                Some(&move |cur, total| {
-                    let _ = tx_cb.send(format!("{}/{}", cur, total));
+                Some(&move |cur, total_frames| {
+                    let pct = if total_frames > 0 { cur * 100 / total_frames } else { 0 };
+                    let bar_len = 20;
+                    let filled = (pct as usize * bar_len) / 100;
+                    let bar: String = "█".repeat(filled) + &"░".repeat(bar_len - filled);
+                    let _ = tx_cb.send(format!("[{}] {}% ({}/{})", bar, pct, cur, total_frames));
                 }),
             );
             match result {
