@@ -2,7 +2,8 @@ use danmaku_core::overlay::{TextOverlay, OverlayConfig};
 use danmaku_core::font::FontCache;
 use danmaku_core::generator::generate_overlays;
 use danmaku_core::video::VideoInfo;
-use std::collections::HashMap;
+use std::io::Read;
+use std::sync::mpsc;
 
 pub struct TextItem {
     pub text: String,
@@ -55,15 +56,21 @@ pub struct DanmakuApp {
     pub show_overlay_text: bool,
     pub playing: bool,
     pub play_start: Option<std::time::Instant>,
-
-    // 帧缓存
     pub frame_texture: Option<egui::TextureHandle>,
     pub last_decoded_time: f64,
+    // ffmpeg pipe
+    pub decoder_pipe: Option<std::process::ChildStdout>,
+    pub decoder_process: Option<std::process::Child>,
+    pub pipe_frame_idx: u64,
 
     // 颜色弹窗
     pub show_color_picker: bool,
-    pub color_picker_target: String, // "new" or "ed"
+    pub color_picker_target: String,
     pub color_picker_rgb: [f32; 3],
+
+    // 导出进度
+    pub export_rx: Option<mpsc::Receiver<String>>,
+    pub export_progress: String,
 
     // 状态
     pub status: String,
@@ -115,13 +122,18 @@ impl Default for DanmakuApp {
             show_overlay_text: true,
             playing: false,
             play_start: None,
-
             frame_texture: None,
             last_decoded_time: -1.0,
+            decoder_pipe: None,
+            decoder_process: None,
+            pipe_frame_idx: 0,
 
             show_color_picker: false,
             color_picker_target: String::new(),
             color_picker_rgb: [0.7, 0.2, 0.2],
+
+            export_rx: None,
+            export_progress: String::new(),
 
             status: "就绪".to_string(),
             processing: false,
@@ -176,25 +188,79 @@ impl DanmakuApp {
         self.show_color_picker = false;
     }
 
-    pub fn decode_frame(&self, t: f64) -> Option<Vec<u8>> {
-        if self.video_path.is_empty() { return None; }
-        let info = self.video_info.as_ref()?;
-        let w = info.width;
-        let h = info.height;
-
-        let output = std::process::Command::new("ffmpeg")
-            .args(["-ss", &format!("{:.3}", t), "-i", &self.video_path,
-                   "-vframes", "1", "-f", "rawvideo", "-pix_fmt", "rgba",
-                   "-s", &format!("{}x{}", w, h), "-"])
+    fn start_decoder_pipe(&mut self) {
+        if self.video_path.is_empty() { return; }
+        let info = match &self.video_info {
+            Some(i) => i.clone(),
+            None => return,
+        };
+        // Kill old decoder
+        if let Some(mut proc) = self.decoder_process.take() {
+            let _ = proc.kill();
+        }
+        let child = std::process::Command::new("ffmpeg")
+            .args(["-i", &self.video_path,
+                   "-f", "rawvideo", "-pix_fmt", "rgba",
+                   "-s", &format!("{}x{}", info.width, info.height),
+                   "-an", "-"])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
-            .output().ok()?;
+            .spawn().ok();
+        if let Some(mut c) = child {
+            self.decoder_pipe = c.stdout.take();
+            self.decoder_process = Some(c);
+            self.pipe_frame_idx = 0;
+        }
+    }
 
-        let expected = (w * h * 4) as usize;
-        if output.stdout.len() >= expected {
-            Some(output.stdout[..expected].to_vec())
-        } else {
-            None
+    pub fn decode_frame_from_pipe(&mut self) -> Option<Vec<u8>> {
+        let info = self.video_info.as_ref()?;
+        let frame_size = (info.width * info.height * 4) as usize;
+
+        // 如果没有 pipe，启动
+        if self.decoder_pipe.is_none() {
+            self.start_decoder_pipe();
+        }
+
+        let pipe = self.decoder_pipe.as_mut()?;
+        let mut buf = vec![0u8; frame_size];
+        let mut total = 0;
+        while total < frame_size {
+            match pipe.read(&mut buf[total..]) {
+                Ok(0) => return None, // EOF
+                Ok(n) => total += n,
+                Err(_) => return None,
+            }
+        }
+        self.pipe_frame_idx += 1;
+        Some(buf)
+    }
+
+    pub fn seek_to_time(&mut self, t: f64) {
+        // 重启 decoder pipe 到指定时间
+        if let Some(mut proc) = self.decoder_process.take() {
+            let _ = proc.kill();
+        }
+        self.decoder_pipe = None;
+
+        if self.video_path.is_empty() { return; }
+        let info = match &self.video_info {
+            Some(i) => i.clone(),
+            None => return,
+        };
+
+        let child = std::process::Command::new("ffmpeg")
+            .args(["-ss", &format!("{:.3}", t), "-i", &self.video_path,
+                   "-f", "rawvideo", "-pix_fmt", "rgba",
+                   "-s", &format!("{}x{}", info.width, info.height),
+                   "-an", "-"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn().ok();
+        if let Some(mut c) = child {
+            self.decoder_pipe = c.stdout.take();
+            self.decoder_process = Some(c);
+            self.pipe_frame_idx = (t * info.fps) as u64;
         }
     }
 
@@ -213,6 +279,10 @@ impl DanmakuApp {
                     self.video_path = p;
                     self.frame_texture = None;
                     self.last_decoded_time = -1.0;
+                    self.decoder_pipe = None;
+                    if let Some(mut proc) = self.decoder_process.take() {
+                        let _ = proc.kill();
+                    }
                 }
                 Err(e) => self.status = format!("错误: {}", e),
             }
@@ -390,18 +460,25 @@ impl DanmakuApp {
         let font_dir = "fonts_proper".to_string();
         let info = self.video_info.as_ref().unwrap().clone();
         self.processing = true;
-        self.status = "导出中...".to_string();
+        self.export_progress = "导出中...".to_string();
+
+        let (tx, rx) = mpsc::channel();
+        self.export_rx = Some(rx);
 
         std::thread::spawn(move || {
             let mut fc = FontCache::new();
             let _ = fc.load_from_dir(std::path::Path::new(&font_dir));
+            let tx_cb = tx.clone();
             let result = danmaku_core::video::process_video(
                 &input, &output, &overlays, &fc,
-                info.width, info.height, info.fps, None,
+                info.width, info.height, info.fps,
+                Some(&move |cur, total| {
+                    let _ = tx_cb.send(format!("{}/{}", cur, total));
+                }),
             );
             match result {
-                Ok(()) => eprintln!("导出完成: {}", output),
-                Err(e) => eprintln!("导出错误: {}", e),
+                Ok(()) => { let _ = tx.send("完成".to_string()); }
+                Err(e) => { let _ = tx.send(format!("错误: {}", e)); }
             }
         });
     }
