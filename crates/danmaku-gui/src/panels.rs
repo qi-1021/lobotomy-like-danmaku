@@ -359,7 +359,21 @@ impl eframe::App for DanmakuApp {
             let r = resp.rect;
             painter.rect_filled(r, 0.0, egui::Color32::from_rgb(12, 10, 18));
 
-            // 画布点击获取坐标
+            let vw = self.video_info.as_ref().map(|i| i.width).unwrap_or(1280);
+            let vh = self.video_info.as_ref().map(|i| i.height).unwrap_or(720);
+            let scale = (r.width() / vw as f32).min(r.height() / vh as f32);
+            let draw_w = vw as f32 * scale;
+            let draw_h = vh as f32 * scale;
+            let ox = r.min.x + (r.width() - draw_w) / 2.0;
+            let oy = r.min.y + (r.height() - draw_h) / 2.0;
+
+            // 显示视频帧
+            if let Some(tex) = &self.frame_texture {
+                let img_rect = egui::Rect::from_min_size(egui::pos2(ox, oy), egui::vec2(draw_w, draw_h));
+                painter.image(tex.id(), img_rect, egui::Rect::from_min_max(
+                    egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0),
+                ), egui::Color32::WHITE);
+            }
             if resp.clicked() {
                 if let Some(pos) = resp.interact_pointer_pos() {
                     let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
@@ -406,55 +420,38 @@ impl eframe::App for DanmakuApp {
             }
 
             // 显示帧
-            if let Some(tex) = &self.frame_texture {
-                let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
-                let vh = self.video_info.as_ref().map(|i| i.height as f32).unwrap_or(720.0);
-                let scale = (r.width() / vw).min(r.height() / vh);
-                let draw_w = vw * scale;
-                let draw_h = vh * scale;
-                let ox = r.min.x + (r.width() - draw_w) / 2.0;
-                let oy = r.min.y + (r.height() - draw_h) / 2.0;
-                let img_rect = egui::Rect::from_min_size(egui::pos2(ox, oy), egui::vec2(draw_w, draw_h));
-                painter.image(tex.id(), img_rect, egui::Rect::from_min_max(
-                    egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0),
-                ), egui::Color32::WHITE);
-            }
+            let vw = self.video_info.as_ref().map(|i| i.width).unwrap_or(1280);
+            let vh = self.video_info.as_ref().map(|i| i.height).unwrap_or(720);
+            let scale = (r.width() / vw as f32).min(r.height() / vh as f32);
+            let draw_w = vw as f32 * scale;
+            let draw_h = vh as f32 * scale;
+            let ox = r.min.x + (r.width() - draw_w) / 2.0;
+            let oy = r.min.y + (r.height() - draw_h) / 2.0;
 
-            // 绘制叠加文字
-            let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
-            let vh = self.video_info.as_ref().map(|i| i.height as f32).unwrap_or(720.0);
-            let scale = (r.width() / vw).min(r.height() / vh);
-            let ox = r.min.x + (r.width() - vw * scale) / 2.0;
-            let oy = r.min.y + (r.height() - vh * scale) / 2.0;
-
-            if self.show_overlay_text {
-                for o in &self.overlays {
-                    let alpha = o.get_alpha(t);
-                    if alpha < 0.01 { continue; }
-                    let visible = o.visible_text(t);
-                    if visible.is_empty() { continue; }
-
-                    let px = ox + o.x * scale;
-                    let py = oy + o.y * scale;
-                    let fs = (o.font_size * scale * 0.8).max(8.0);
-
-                    let r_c = (o.color[0] * 255.0) as u8;
-                    let g_c = (o.color[1] * 255.0) as u8;
-                    let b_c = (o.color[2] * 255.0) as u8;
-                    let mixed = egui::Color32::from_rgba_premultiplied(
-                        ((1.0 - alpha) * 12.0 + alpha * r_c as f32) as u8,
-                        ((1.0 - alpha) * 10.0 + alpha * g_c as f32) as u8,
-                        ((1.0 - alpha) * 18.0 + alpha * b_c as f32) as u8,
-                        255,
+            // 渲染叠加文字到纹理（用 core 的 render_frame，和导出完全一致）
+            if self.show_overlay_text && !self.overlays.is_empty() {
+                let has_visible = self.overlays.iter().any(|o| o.get_alpha(t) >= 0.01 && !o.visible_text(t).is_empty());
+                if has_visible {
+                    // 先在视频分辨率的图上渲染叠加
+                    let mut overlay_img = image::RgbaImage::from_pixel(vw, vh, image::Rgba([0, 0, 0, 0]));
+                    danmaku_core::render::render_frame(&mut overlay_img, &self.overlays, t, &self.font_cache);
+                    // 缩放到预览尺寸
+                    let dynamic = image::DynamicImage::ImageRgba8(overlay_img);
+                    let scaled = dynamic.resize(draw_w as u32, draw_h as u32, image::imageops::FilterType::Nearest);
+                    let rgba = scaled.to_rgba8();
+                    let pixels: Vec<u8> = rgba.into_raw();
+                    let overlay_tex = ctx.load_texture(
+                        "overlay_layer",
+                        egui::ColorImage::from_rgba_unmultiplied(
+                            [draw_w as usize, draw_h as usize],
+                            &pixels,
+                        ),
+                        egui::TextureOptions::LINEAR,
                     );
-
-                    painter.text(
-                        egui::pos2(px, py),
-                        egui::Align2::CENTER_CENTER,
-                        visible,
-                        egui::FontId::proportional(fs),
-                        mixed,
-                    );
+                    let img_rect = egui::Rect::from_min_size(egui::pos2(ox, oy), egui::vec2(draw_w, draw_h));
+                    painter.image(overlay_tex.id(), img_rect, egui::Rect::from_min_max(
+                        egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0),
+                    ), egui::Color32::WHITE);
                 }
             }
         });
