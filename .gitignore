@@ -9,7 +9,7 @@ __pycache__/
 *.webm
 target/
 Cargo.lock
-*.json
-!user_texts_example.json
 /tmp/
+.venv/
 fonts_proper/
+rust/
