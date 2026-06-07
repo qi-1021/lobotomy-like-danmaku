@@ -1,5 +1,5 @@
 use image::RgbaImage;
-use ab_glyph::{FontRef, PxScale, Font};
+use ab_glyph::{FontRef, PxScale, Font, GlyphId, ScaleFont};
 use crate::overlay::TextOverlay;
 use crate::font::FontCache;
 
@@ -17,16 +17,17 @@ pub fn render_overlay(img: &mut RgbaImage, overlay: &TextOverlay, t: f64, font_c
     let visible = overlay.visible_text(t);
     if visible.is_empty() { return; }
 
-    let (font_data, _idx) = match font_cache.get_font_data(visible) {
+    let (font_data, font_idx) = match font_cache.get_font_data(visible) {
         Some(f) => f,
         None => return,
     };
-    let font = match FontRef::try_from_slice(font_data) {
+    let font = match FontRef::try_from_slice_and_index(font_data, font_idx) {
         Ok(f) => f,
         Err(_) => return,
     };
 
     let scale = PxScale::from(overlay.font_size);
+    let scaled_font = ab_glyph::Font::as_scaled(&font, scale);
     let color = [
         (overlay.color[0] * 255.0) as u8,
         (overlay.color[1] * 255.0) as u8,
@@ -35,30 +36,49 @@ pub fn render_overlay(img: &mut RgbaImage, overlay: &TextOverlay, t: f64, font_c
     let angle_rad = overlay.angle * std::f32::consts::PI / 180.0;
     let has_rotation = angle_rad.abs() > 0.005;
 
-    // Measure total width
-    let mut total_width = 0.0f32;
-    let mut char_widths = Vec::new();
+    // 用 ab_glyph layout 获取每个字形在整行中的正确位置
+    struct GlyphInfo {
+        glyph_id: GlyphId,
+        x: f32,
+    }
+    let mut glyph_infos: Vec<GlyphInfo> = Vec::new();
+    let mut cursor_x = 0.0f32;
+    let mut prev_glyph: Option<GlyphId> = None;
+
     for ch in visible.chars() {
         let glyph_id = font.glyph_id(ch);
-        let glyph = glyph_id.with_scale(scale);
-        let w = font.outline_glyph(glyph).map(|o| o.px_bounds().width()).unwrap_or(0.0);
-        char_widths.push(w);
-        total_width += w;
+        if let Some(prev) = prev_glyph {
+            cursor_x += scaled_font.kern(prev, glyph_id);
+        }
+        let advance = scaled_font.h_advance(glyph_id);
+        glyph_infos.push(GlyphInfo { glyph_id, x: cursor_x });
+        cursor_x += advance;
+        prev_glyph = Some(glyph_id);
     }
 
+    let total_width = cursor_x;
     let cx = overlay.x;
     let cy = overlay.y;
-    let start_x = cx - total_width / 2.0;
-    let baseline_y = cy + overlay.font_size * 0.35;
-    let mut cursor_x = start_x;
+    let ascent = scaled_font.ascent();
+    let descent = scaled_font.descent();
+    let line_height = ascent - descent;
 
-    for (i, ch) in visible.chars().enumerate() {
-        let glyph_id = font.glyph_id(ch);
-        let glyph = glyph_id.with_scale(scale);
-        if let Some(outlined) = font.outline_glyph(glyph) {
+    // 渲染每个字形
+    for gi in &glyph_infos {
+        // 计算字形在图像中的目标位置
+        let glyph_x = gi.x - total_width / 2.0 + cx;
+        let glyph_y = cy - line_height / 2.0 + ascent;
+
+        let positioned = gi.glyph_id.with_scale_and_position(
+            scale,
+            ab_glyph::point(glyph_x, glyph_y),
+        );
+        if let Some(outlined) = font.outline_glyph(positioned) {
+            let bounds = outlined.px_bounds();
             outlined.draw(|x, y, c| {
-                let raw_px = cursor_x + x as f32;
-                let raw_py = baseline_y + y as f32;
+                // x, y 是相对于 bounds.min 的像素偏移
+                let raw_px = bounds.min.x + x as f32;
+                let raw_py = bounds.min.y + y as f32;
 
                 let (px, py) = if has_rotation {
                     rotate_point(raw_px, raw_py, cx, cy, angle_rad)
@@ -80,7 +100,6 @@ pub fn render_overlay(img: &mut RgbaImage, overlay: &TextOverlay, t: f64, font_c
                 }
             });
         }
-        cursor_x += char_widths[i];
     }
 }
 
