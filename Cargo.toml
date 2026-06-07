@@ -2,5 +2,6 @@
 members = [
     "crates/danmaku-core",
     "crates/danmaku-cli",
+    "crates/danmaku-gui",
 ]
 resolver = "2"

@@ -1,0 +1,285 @@
+use eframe::egui;
+use crate::app::DanmakuApp;
+
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(180, 60, 60);
+const SAVE_COLOR: egui::Color32 = egui::Color32::from_rgb(204, 180, 68);
+const LOAD_COLOR: egui::Color32 = egui::Color32::from_rgb(78, 176, 216);
+const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(136, 136, 136);
+
+impl eframe::App for DanmakuApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let now = if self.playing {
+            if let Some(start) = self.play_start {
+                start.elapsed().as_secs_f64()
+            } else {
+                self.play_start = Some(std::time::Instant::now());
+                0.0
+            }
+        } else {
+            self.preview_time
+        };
+        if self.playing {
+            if let Some(info) = &self.video_info {
+                if now > info.duration {
+                    self.playing = false;
+                    self.play_start = None;
+                }
+            }
+            ctx.request_repaint();
+        }
+
+        // ═══ 左侧面板 ═══
+        egui::SidePanel::left("left_panel")
+            .default_width(460.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // ── 视频 ──
+                    ui.collapsing("视频", |ui| {
+                        let btn_text = if self.video_path.is_empty() {
+                            "  点击选择视频".to_string()
+                        } else {
+                            format!("  {}", std::path::Path::new(&self.video_path)
+                                .file_name().unwrap_or_default().to_string_lossy())
+                        };
+                        if ui.button(&btn_text).clicked() {
+                            self.import_video();
+                        }
+                    });
+
+                    // ── 文字列表 ──
+                    ui.collapsing("文字列表", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("文字:");
+                            ui.text_edit_singleline(&mut self.new_text);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("颜色:");
+                            let c = DanmakuApp::color_from_hex(&self.new_color_hex);
+                            let btn = egui::Button::new(egui::RichText::new(&self.new_color_hex).color(c));
+                            if ui.add(btn).clicked() {
+                                // 简单弹出：输入 hex
+                            }
+                            if ui.button("添加").clicked() && !self.new_text.is_empty() {
+                                self.text_list.push(crate::app::TextItem {
+                                    text: self.new_text.clone(),
+                                    color_hex: self.new_color_hex.clone(),
+                                });
+                                self.status = format!("已添加: {}", self.new_text);
+                                self.new_text.clear();
+                            }
+                        });
+
+                        let mut to_delete = None;
+                        for (i, item) in self.text_list.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                let c = DanmakuApp::color_from_hex(&item.color_hex);
+                                ui.label(egui::RichText::new(&item.text).color(c));
+                                if ui.small_button("🗑").clicked() {
+                                    to_delete = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(i) = to_delete {
+                            self.text_list.remove(i);
+                        }
+                        if ui.button("清空").clicked() {
+                            self.text_list.clear();
+                        }
+                    });
+
+                    // ── 生成参数 ──
+                    ui.collapsing("生成参数", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("密度:");
+                            ui.add(egui::DragValue::new(&mut self.density).speed(0.05).range(0.1..=1.0));
+                            ui.label("最多同时:");
+                            ui.add(egui::DragValue::new(&mut self.max_active).range(1..=20));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("字号:");
+                            ui.add(egui::DragValue::new(&mut self.size_min).range(8.0..=72.0));
+                            ui.label("-");
+                            ui.add(egui::DragValue::new(&mut self.size_max).range(8.0..=72.0));
+                            ui.label("种子:");
+                            ui.add(egui::DragValue::new(&mut self.seed).range(0..=9999));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("角度:");
+                            ui.add(egui::DragValue::new(&mut self.angle_min).speed(1.0).range(-45.0..=45.0));
+                            ui.label("~");
+                            ui.add(egui::DragValue::new(&mut self.angle_max).speed(1.0).range(-45.0..=45.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("打字速度:");
+                            ui.add(egui::DragValue::new(&mut self.type_speed).speed(0.01).range(0.01..=0.3));
+                            ui.label("秒/字");
+                            ui.label("留存:");
+                            ui.add(egui::DragValue::new(&mut self.post_hold).speed(0.1).range(0.0..=10.0));
+                            ui.label("秒");
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("透明度:");
+                            ui.add(egui::DragValue::new(&mut self.auto_alpha).speed(0.05).range(0.1..=1.0));
+                        });
+                        if ui.button("自动生成叠加").clicked() {
+                            self.auto_generate();
+                        }
+                    });
+
+                    // ── 叠加列表 ──
+                    ui.collapsing("叠加列表", |ui| {
+                        let mut to_delete = None;
+                        let mut selected = None;
+                        for (i, o) in self.overlays.iter().enumerate() {
+                            let label = format!("{} ({:.0},{:.0}) {:.1}-{:.1}s", o.text, o.x, o.y, o.start_time, o.end_time);
+                            let is_sel = self.selected_overlay == Some(i);
+                            let c = egui::Color32::from_rgb(
+                                (o.color[0] * 255.0) as u8, (o.color[1] * 255.0) as u8, (o.color[2] * 255.0) as u8,
+                            );
+                            ui.horizontal(|ui| {
+                                if ui.selectable_label(is_sel, egui::RichText::new(&label).color(c)).clicked() {
+                                    selected = Some(i);
+                                }
+                                if ui.small_button("🗑").clicked() {
+                                    to_delete = Some(i);
+                                }
+                            });
+                        }
+                        if let Some(i) = selected { self.select_overlay(i); }
+                        if let Some(i) = to_delete {
+                            self.overlays.remove(i);
+                            if self.selected_overlay == Some(i) { self.selected_overlay = None; }
+                        }
+                        if ui.button("清空").clicked() {
+                            self.overlays.clear();
+                            self.selected_overlay = None;
+                        }
+                    });
+
+                    // ── 手动编辑 ──
+                    ui.collapsing("手动编辑", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("文字:");
+                            ui.text_edit_singleline(&mut self.ed_text);
+                            ui.label("字号:");
+                            ui.add(egui::DragValue::new(&mut self.ed_size).range(8.0..=72.0));
+                            ui.label("角度:");
+                            ui.add(egui::DragValue::new(&mut self.ed_angle).speed(0.5).range(-45.0..=45.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("颜色:");
+                            let c = DanmakuApp::color_from_hex(&self.ed_color_hex);
+                            let btn = egui::Button::new(egui::RichText::new(&self.ed_color_hex).color(c));
+                            if ui.add(btn).clicked() {}
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("X:");
+                            ui.add(egui::DragValue::new(&mut self.ed_x).speed(10.0).range(0.0..=1920.0));
+                            ui.label("Y:");
+                            ui.add(egui::DragValue::new(&mut self.ed_y).speed(10.0).range(0.0..=1080.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("开始:");
+                            ui.add(egui::DragValue::new(&mut self.ed_start).speed(0.1).range(0.0..=300.0));
+                            ui.label("结束:");
+                            ui.add(egui::DragValue::new(&mut self.ed_end).speed(0.1).range(0.0..=300.0));
+                            ui.label("留存:");
+                            ui.add(egui::DragValue::new(&mut self.ed_post_hold).speed(0.1).range(0.0..=10.0));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("打字速度:");
+                            ui.add(egui::DragValue::new(&mut self.ed_speed).speed(0.01).range(0.01..=0.3));
+                            ui.label("透明度:");
+                            ui.add(egui::DragValue::new(&mut self.ed_alpha).speed(0.05).range(0.1..=1.0));
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("添加新叠加").clicked() { self.manual_add(); }
+                            if ui.button("更新选中").clicked() { self.manual_update(); }
+                        });
+                    });
+                });
+
+                // ── 导出 ──
+                ui.separator();
+                ui.label(egui::RichText::new(&self.status).small().color(TEXT_DIM));
+
+                if ui.button("导出视频").clicked() {
+                    self.export_video();
+                }
+                ui.horizontal(|ui| {
+                    let save_btn = egui::Button::new("保存项目").fill(SAVE_COLOR);
+                    if ui.add(save_btn).clicked() { self.export_json(); }
+                    let load_btn = egui::Button::new("加载项目").fill(LOAD_COLOR);
+                    if ui.add(load_btn).clicked() { self.import_json(); }
+                });
+            });
+
+        // ═══ 右侧预览 ═══
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let play_text = if self.playing { "暂停" } else { "播放" };
+                if ui.button(play_text).clicked() {
+                    if self.playing {
+                        self.playing = false;
+                        self.play_start = None;
+                    } else {
+                        self.playing = true;
+                        self.play_start = Some(std::time::Instant::now());
+                    }
+                }
+                ui.checkbox(&mut self.show_overlay_text, "叠加文字");
+                ui.label("时间:");
+                let max_time = self.video_info.as_ref().map(|i| i.duration).unwrap_or(10.0);
+                ui.add(egui::Slider::new(&mut self.preview_time, 0.0..=max_time));
+                ui.label(format!("{:.1}s", self.preview_time));
+            });
+
+            // 预览画布
+            let available = ui.available_size();
+            let (resp, painter) = ui.allocate_painter(available, egui::Sense::hover());
+            let r = resp.rect;
+
+            painter.rect_filled(r, 0.0, egui::Color32::from_rgb(12, 10, 18));
+            painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(68, 68, 68)));
+
+            let t = now;
+            let vw = self.video_info.as_ref().map(|i| i.width as f32).unwrap_or(1280.0);
+            let vh = self.video_info.as_ref().map(|i| i.height as f32).unwrap_or(720.0);
+            let scale = (r.width() / vw).min(r.height() / vh);
+            let ox = r.min.x + (r.width() - vw * scale) / 2.0;
+            let oy = r.min.y + (r.height() - vh * scale) / 2.0;
+
+            if self.show_overlay_text {
+                for o in &self.overlays {
+                    let alpha = o.get_alpha(t);
+                    if alpha < 0.01 { continue; }
+                    let visible = o.visible_text(t);
+                    if visible.is_empty() { continue; }
+
+                    let px = ox + o.x * scale;
+                    let py = oy + o.y * scale;
+                    let fs = (o.font_size * scale * 0.8).max(8.0);
+
+                    let r_c = (o.color[0] * 255.0) as u8;
+                    let g_c = (o.color[1] * 255.0) as u8;
+                    let b_c = (o.color[2] * 255.0) as u8;
+                    let mixed = egui::Color32::from_rgba_premultiplied(
+                        ((1.0 - alpha) * 12.0 + alpha * r_c as f32) as u8,
+                        ((1.0 - alpha) * 10.0 + alpha * g_c as f32) as u8,
+                        ((1.0 - alpha) * 18.0 + alpha * b_c as f32) as u8,
+                        255,
+                    );
+
+                    painter.text(
+                        egui::pos2(px, py),
+                        egui::Align2::CENTER_CENTER,
+                        visible,
+                        egui::FontId::proportional(fs),
+                        mixed,
+                    );
+                }
+            }
+        });
+    }
+}

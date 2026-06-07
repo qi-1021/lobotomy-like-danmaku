@@ -26,7 +26,7 @@ fi
 
 # 构建
 echo "构建中..."
-cargo build --release -p danmaku-cli 2>&1
+cargo build --release 2>&1
 if [ $? -ne 0 ]; then
     echo "构建失败"
     exit 1
@@ -34,14 +34,19 @@ fi
 
 # 运行
 echo ""
-echo "运行 danmaku CLI..."
-echo "用法: ./target/release/danmaku -i input.mp4 -o output.mp4 --text \"控制部\" --text \"WARNING\""
-echo ""
-
-if [ $# -eq 0 ]; then
-    echo "示例："
-    echo "  ./target/release/danmaku -i video.mp4 -o output.mp4 --texts texts.json"
-    echo "  ./target/release/danmaku -i video.mp4 -o output.mp4 --text \"控制部\" --text \"WARNING\""
+if [ "$1" = "--cli" ]; then
+    shift
+    echo "运行 danmaku CLI..."
+    echo "用法: ./target/release/danmaku -i input.mp4 -o output.mp4 --text \"控制部\" --text \"WARNING\""
+    echo ""
+    if [ $# -eq 0 ]; then
+        echo "示例："
+        echo "  ./target/release/danmaku -i video.mp4 -o output.mp4 --texts texts.json"
+        echo "  ./target/release/danmaku -i video.mp4 -o output.mp4 --text \"控制部\" --text \"WARNING\""
+    else
+        ./target/release/danmaku "$@"
+    fi
 else
-    ./target/release/danmaku "$@"
+    echo "启动 GUI..."
+    ./target/release/danmaku-gui
 fi

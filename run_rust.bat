@@ -23,7 +23,7 @@ if %errorlevel% neq 0 (
 
 REM 构建
 echo 构建中...
-cargo build --release -p danmaku-cli
+cargo build --release
 if %errorlevel% neq 0 (
     echo 构建失败
     pause
@@ -32,15 +32,20 @@ if %errorlevel% neq 0 (
 
 REM 运行
 echo.
-echo 运行 danmaku CLI...
-echo 用法: target\release\danmaku.exe -i input.mp4 -o output.mp4 --text "控制部" --text "WARNING"
-echo.
-
-if "%~1"=="" (
-    echo 示例：
-    echo   target\release\danmaku.exe -i video.mp4 -o output.mp4 --texts texts.json
-    echo   target\release\danmaku.exe -i video.mp4 -o output.mp4 --text "控制部" --text "WARNING"
+if "%~1"=="--cli" (
+    shift
+    echo 运行 danmaku CLI...
+    echo 用法: target\release\danmaku.exe -i input.mp4 -o output.mp4 --text "控制部" --text "WARNING"
+    echo.
+    if "%~1"=="" (
+        echo 示例：
+        echo   target\release\danmaku.exe -i video.mp4 -o output.mp4 --texts texts.json
+        echo   target\release\danmaku.exe -i video.mp4 -o output.mp4 --text "控制部" --text "WARNING"
+    ) else (
+        target\release\danmaku.exe %*
+    )
 ) else (
-    target\release\danmaku.exe %*
+    echo 启动 GUI...
+    target\release\danmaku-gui.exe
 )
 pause
