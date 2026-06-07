@@ -343,11 +343,15 @@ impl eframe::App for DanmakuApp {
                 if slider_resp.changed() {
                     self.playing = false;
                     self.play_start = None;
-                    // seek pipe
                     self.seek_to_time(self.preview_time);
-                    // 解码一帧
+                    let w = self.video_info.as_ref().map(|i| i.width).unwrap_or(1280);
+                    let h = self.video_info.as_ref().map(|i| i.height).unwrap_or(720);
                     if let Some(raw) = self.decode_frame_from_pipe() {
-                        self.update_frame_texture(ctx, raw);
+                        let mut img = image::RgbaImage::from_raw(w, h, raw).unwrap();
+                        if self.show_overlay_text {
+                            danmaku_core::render::render_frame(&mut img, &self.overlays, t, &self.font_cache);
+                        }
+                        self.update_frame_texture_from_img(ctx, img);
                     }
                 }
                 ui.label(format!("{:.1}s", t));
@@ -405,54 +409,27 @@ impl eframe::App for DanmakuApp {
                 if let Some(info) = info {
                     let frame_duration = 1.0 / info.fps;
                     let target_frame = (t / frame_duration) as u64;
-                    // 读到目标帧
                     while self.pipe_frame_idx <= target_frame {
                         if let Some(raw) = self.decode_frame_from_pipe() {
                             if self.pipe_frame_idx >= target_frame {
-                                self.update_frame_texture(ctx, raw);
+                                let mut img = image::RgbaImage::from_raw(vw, vh, raw).unwrap();
+                                if self.show_overlay_text {
+                                    danmaku_core::render::render_frame(&mut img, &self.overlays, t, &self.font_cache);
+                                }
+                                self.update_frame_texture_from_img(ctx, img);
                                 break;
                             }
-                        } else {
-                            break;
-                        }
+                        } else { break; }
                     }
                 }
             }
 
-            // 显示帧
-            let vw = self.video_info.as_ref().map(|i| i.width).unwrap_or(1280);
-            let vh = self.video_info.as_ref().map(|i| i.height).unwrap_or(720);
-            let scale = (r.width() / vw as f32).min(r.height() / vh as f32);
-            let draw_w = vw as f32 * scale;
-            let draw_h = vh as f32 * scale;
-            let ox = r.min.x + (r.width() - draw_w) / 2.0;
-            let oy = r.min.y + (r.height() - draw_h) / 2.0;
-
-            // 渲染叠加文字到纹理（用 core 的 render_frame，和导出完全一致）
-            if self.show_overlay_text && !self.overlays.is_empty() {
-                let has_visible = self.overlays.iter().any(|o| o.get_alpha(t) >= 0.01 && !o.visible_text(t).is_empty());
-                if has_visible {
-                    // 先在视频分辨率的图上渲染叠加
-                    let mut overlay_img = image::RgbaImage::from_pixel(vw, vh, image::Rgba([0, 0, 0, 0]));
-                    danmaku_core::render::render_frame(&mut overlay_img, &self.overlays, t, &self.font_cache);
-                    // 缩放到预览尺寸
-                    let dynamic = image::DynamicImage::ImageRgba8(overlay_img);
-                    let scaled = dynamic.resize(draw_w as u32, draw_h as u32, image::imageops::FilterType::Nearest);
-                    let rgba = scaled.to_rgba8();
-                    let pixels: Vec<u8> = rgba.into_raw();
-                    let overlay_tex = ctx.load_texture(
-                        "overlay_layer",
-                        egui::ColorImage::from_rgba_unmultiplied(
-                            [draw_w as usize, draw_h as usize],
-                            &pixels,
-                        ),
-                        egui::TextureOptions::LINEAR,
-                    );
-                    let img_rect = egui::Rect::from_min_size(egui::pos2(ox, oy), egui::vec2(draw_w, draw_h));
-                    painter.image(overlay_tex.id(), img_rect, egui::Rect::from_min_max(
-                        egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0),
-                    ), egui::Color32::WHITE);
-                }
+            // 显示帧（叠加已渲染到帧上）
+            if let Some(tex) = &self.frame_texture {
+                let img_rect = egui::Rect::from_min_size(egui::pos2(ox, oy), egui::vec2(draw_w, draw_h));
+                painter.image(tex.id(), img_rect, egui::Rect::from_min_max(
+                    egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0),
+                ), egui::Color32::WHITE);
             }
         });
     }
@@ -466,19 +443,27 @@ impl DanmakuApp {
         };
         let img = image::RgbaImage::from_raw(info.width, info.height, raw);
         if let Some(img) = img {
-            let dynamic = image::DynamicImage::ImageRgba8(img);
-            let rgba = dynamic.to_rgba8();
-            let pixels: Vec<u8> = rgba.into_raw();
-            let tex = ctx.load_texture(
-                "preview_frame",
-                egui::ColorImage::from_rgba_unmultiplied(
-                    [info.width as usize, info.height as usize],
-                    &pixels,
-                ),
-                egui::TextureOptions::LINEAR,
-            );
-            self.frame_texture = Some(tex);
+            self.update_frame_texture_from_img(ctx, img);
         }
+    }
+
+    fn update_frame_texture_from_img(&mut self, ctx: &egui::Context, img: image::RgbaImage) {
+        let info = match &self.video_info {
+            Some(i) => i,
+            None => return,
+        };
+        let dynamic = image::DynamicImage::ImageRgba8(img);
+        let rgba = dynamic.to_rgba8();
+        let pixels: Vec<u8> = rgba.into_raw();
+        let tex = ctx.load_texture(
+            "preview_frame",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [info.width as usize, info.height as usize],
+                &pixels,
+            ),
+            egui::TextureOptions::LINEAR,
+        );
+        self.frame_texture = Some(tex);
     }
 }
 
