@@ -95,6 +95,18 @@ def pick_font(text, font_size=24):
         if sys_cjk:
             idx = 3 if 'pingfang' in sys_cjk.lower() else 0
             cjk_font = (sys_cjk, idx)
+    # 3. 硬编码兜底（系统搜索失败时）
+    if cjk_font is None:
+        for p in ["/System/Library/Fonts/STHeiti Medium.ttc",
+                  "/System/Library/Fonts/Hiragino Sans GB.ttc",
+                  "/Library/Fonts/Arial Unicode.ttf",
+                  "C:\\Windows\\Fonts\\msyh.ttc",
+                  "C:\\Windows\\Fonts\\simhei.ttf",
+                  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                  "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]:
+            if os.path.exists(p):
+                cjk_font = (p, 0)
+                break
     if latin_font is None:
         sys_latin = _find_system_font(['Helvetica', 'Arial', 'DejaVuSans',
                                         'LiberationSans', 'NotoSans'])
@@ -156,13 +168,6 @@ def render_frame(img, overlays, t, fonts):
         text = o['text']
         font_size = o['font_size']
         angle = o.get('angle', 0)
-
-        # 调试：打印前10条的字体大小
-        if not hasattr(render_frame, '_debug_printed'):
-            render_frame._debug_printed = set()
-        if len(render_frame._debug_printed) < 10:
-            render_frame._debug_printed.add(text)
-            print(f"[RENDER DEBUG] text='{text[:8]}' font_size={font_size} angle={angle:.1f}")
 
         # Typewriter: how many characters visible
         type_speed = o.get('type_speed', 0.06)
