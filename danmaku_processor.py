@@ -273,7 +273,7 @@ def make_overlays(texts, duration, width, height, *, density=0.45, max_active=4,
 
     step = max(0.6, 1.6 - density)
     t = 0.4
-    while t < duration - 0.3 and len(overlays) < estimated_count * 2:
+    while t < duration - 0.3:
         active = [o for o in overlays if o['start_time'] <= t <= o['end_time']]
         if len(active) >= max_active:
             t += 0.2
