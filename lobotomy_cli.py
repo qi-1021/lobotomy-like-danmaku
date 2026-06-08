@@ -63,3 +63,26 @@ Examples:
     if not text_specs:
         print("Error: No texts specified", file=sys.stderr)
         sys.exit(1)
+
+    fonts = load_fonts()
+    info = probe_video(args.input)
+    print(f"Video: {info.width}x{info.height} @ {info.fps:.0f}fps, {info.duration:.1f}s")
+
+    overlays = make_overlays(
+        text_specs, info.duration, info.width, info.height,
+        density=args.density, max_active=args.max_active,
+        seed=args.seed, size_min=args.size_min, size_max=args.size_max,
+        angle_min=args.angle_min, angle_max=args.angle_max,
+        type_speed=args.type_speed, post_hold=args.post_hold,
+        fonts=fonts,
+    )
+    print(f"Overlays: {len(overlays)}")
+
+    def on_progress(cur, total):
+        print(f"\rProcessing {cur}/{total}", end="", flush=True)
+
+    process_video(args.input, args.output, overlays, fonts, progress_cb=on_progress)
+    print(f"\nDone: {args.output}")
+
+if __name__ == "__main__":
+    main()
