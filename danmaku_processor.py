@@ -14,31 +14,21 @@ VideoInfo = namedtuple('VideoInfo', ['width', 'height', 'fps', 'duration'])
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = os.path.join(SCRIPT_DIR, "fonts_proper")
 
-def _find_system_font(names):
-    """在系统字体目录中查找字体（兜底）"""
-    system = platform.system()
-    if system == "Darwin":
-        search_dirs = ["/System/Library/Fonts", "/Library/Fonts",
-                       os.path.expanduser("~/Library/Fonts")]
-    elif system == "Windows":
-        search_dirs = [os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")]
-    else:
-        search_dirs = ["/usr/share/fonts", "/usr/local/share/fonts",
-                       os.path.expanduser("~/.fonts"),
-                       os.path.expanduser("~/.local/share/fonts")]
-    
-    for d in search_dirs:
-        if not os.path.isdir(d):
-            continue
-        for root, _, files in os.walk(d):
-            for name in names:
-                for ext in ('.ttf', '.otf', '.ttc'):
-                    for f in files:
-                        fl = f.lower()
-                        # 模糊匹配：'STHeiti' 匹配 'STHeiti Medium.ttc'
-                        nl = name.lower()
-                        if fl.startswith(nl) and fl.endswith(ext):
-                            return os.path.join(root, f)
+SYSTEM_FONTS = [
+    "/System/Library/Fonts/STHeiti Medium.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+    "C:\\Windows\\Fonts\\msyh.ttc",
+    "C:\\Windows\\Fonts\\simhei.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+    "/System/Library/Fonts/PingFang.ttc",
+]
+
+def _find_system_font(_names=None):
+    for p in SYSTEM_FONTS:
+        if os.path.exists(p):
+            return p
     return None
 
 def load_fonts():
@@ -78,40 +68,23 @@ def pick_font(text, font_size=24):
             if not fl.endswith(('.ttf', '.otf', '.ttc')):
                 continue
             fpath = os.path.join(FONT_DIR, fname)
-            if 'pingfang' in fl or 'noto' in fl or 'source' in fl \
-                    or 'heiti' in fl or 'songti' in fl or 'hiragino' in fl \
-                    or 'msyh' in fl or 'simhei' in fl or 'wqy' in fl:
+            if any(k in fl for k in ('pingfang', 'noto', 'source', 'heiti', 'songti',
+                                      'hiragino', 'msyh', 'simhei', 'wqy')):
                 cjk_font = (fpath, 3 if 'pingfang' in fl else 0)
-            elif 'norwester' in fl or 'arial' in fl or 'helvetica' in fl:
+            elif any(k in fl for k in ('norwester', 'arial', 'helvetica')):
                 latin_font = (fpath, 0)
             elif latin_font is None:
                 latin_font = (fpath, 0)
     
-    # 2. 系统字体兜底
+    # 2. 系统硬编码路径
     if cjk_font is None:
-        sys_cjk = _find_system_font(['PingFang', 'STHeiti', 'Hiragino', 'msyh',
-                                      'Microsoft YaHei', 'SimHei', 'NotoSansCJK',
-                                      'NotoSansSC', 'WenQuanYiMicroHei'])
-        if sys_cjk:
-            idx = 3 if 'pingfang' in sys_cjk.lower() else 0
-            cjk_font = (sys_cjk, idx)
-    # 3. 硬编码兜底（系统搜索失败时）
-    if cjk_font is None:
-        for p in ["/System/Library/Fonts/STHeiti Medium.ttc",
-                  "/System/Library/Fonts/Hiragino Sans GB.ttc",
-                  "/Library/Fonts/Arial Unicode.ttf",
-                  "C:\\Windows\\Fonts\\msyh.ttc",
-                  "C:\\Windows\\Fonts\\simhei.ttf",
-                  "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-                  "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"]:
-            if os.path.exists(p):
-                cjk_font = (p, 0)
-                break
+        sys_path = _find_system_font()
+        if sys_path:
+            cjk_font = (sys_path, 0)
     if latin_font is None:
-        sys_latin = _find_system_font(['Helvetica', 'Arial', 'DejaVuSans',
-                                        'LiberationSans', 'NotoSans'])
-        if sys_latin:
-            latin_font = (sys_latin, 0)
+        sys_path = _find_system_font()
+        if sys_path:
+            latin_font = (sys_path, 0)
     
     if has_cjk and cjk_font:
         font_path, index = cjk_font
@@ -188,14 +161,10 @@ def render_frame(img, overlays, t, fonts):
         alpha_int = int(overall_alpha * 255)
         fill = color + (alpha_int,) if img.mode == 'RGBA' else color
 
-        # 直接加载字体，不走 pick_font
+        # 创建字体对象（PIL 72DPI，需放大到与预览一致）
         render_size = int(font_size * 1.25)
-        try:
-            base_font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", render_size, index=0)
-            pop_font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", int(render_size * pop_scale), index=0) if pop_scale > 1.0 else base_font
-        except:
-            base_font = pick_font(text, render_size)
-            pop_font = pick_font(text, int(render_size * pop_scale)) if pop_scale > 1.0 else base_font
+        base_font = pick_font(text, render_size)
+        pop_font = pick_font(text, int(render_size * pop_scale)) if pop_scale > 1.0 else base_font
 
         # 测量已出现字符的宽度
         vis_char_widths = []
