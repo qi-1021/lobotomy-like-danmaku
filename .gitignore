@@ -13,3 +13,4 @@ Cargo.lock
 .venv/
 fonts_proper/
 rust/
+fonts_proper/

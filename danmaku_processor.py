@@ -76,7 +76,9 @@ def pick_font(text, font_size=24):
             if not fl.endswith(('.ttf', '.otf', '.ttc')):
                 continue
             fpath = os.path.join(FONT_DIR, fname)
-            if 'pingfang' in fl or 'noto' in fl or 'source' in fl:
+            if 'pingfang' in fl or 'noto' in fl or 'source' in fl \
+                    or 'heiti' in fl or 'songti' in fl or 'hiragino' in fl \
+                    or 'msyh' in fl or 'simhei' in fl or 'wqy' in fl:
                 cjk_font = (fpath, 3 if 'pingfang' in fl else 0)
             elif 'norwester' in fl or 'arial' in fl or 'helvetica' in fl:
                 latin_font = (fpath, 0)
@@ -85,9 +87,9 @@ def pick_font(text, font_size=24):
     
     # 2. 系统字体兜底
     if cjk_font is None:
-        sys_cjk = _find_system_font(['PingFang', 'msyh', 'Microsoft YaHei',
-                                      'SimHei', 'NotoSansCJK', 'NotoSansSC',
-                                      'WenQuanYiMicroHei'])
+        sys_cjk = _find_system_font(['PingFang', 'STHeiti', 'Hiragino', 'msyh',
+                                      'Microsoft YaHei', 'SimHei', 'NotoSansCJK',
+                                      'NotoSansSC', 'WenQuanYiMicroHei'])
         if sys_cjk:
             idx = 3 if 'pingfang' in sys_cjk.lower() else 0
             cjk_font = (sys_cjk, idx)
