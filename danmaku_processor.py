@@ -188,10 +188,14 @@ def render_frame(img, overlays, t, fonts):
         alpha_int = int(overall_alpha * 255)
         fill = color + (alpha_int,) if img.mode == 'RGBA' else color
 
-        # 创建字体对象（PIL 72DPI，需放大到与预览一致）
+        # 直接加载字体，不走 pick_font
         render_size = int(font_size * 1.25)
-        base_font = pick_font(text, render_size)
-        pop_font = pick_font(text, int(render_size * pop_scale)) if pop_scale > 1.0 else base_font
+        try:
+            base_font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", render_size, index=0)
+            pop_font = ImageFont.truetype("/System/Library/Fonts/STHeiti Medium.ttc", int(render_size * pop_scale), index=0) if pop_scale > 1.0 else base_font
+        except:
+            base_font = pick_font(text, render_size)
+            pop_font = pick_font(text, int(render_size * pop_scale)) if pop_scale > 1.0 else base_font
 
         # 测量已出现字符的宽度
         vis_char_widths = []
