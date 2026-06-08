@@ -157,6 +157,13 @@ def render_frame(img, overlays, t, fonts):
         font_size = o['font_size']
         angle = o.get('angle', 0)
 
+        # 调试：打印前10条的字体大小
+        if not hasattr(render_frame, '_debug_printed'):
+            render_frame._debug_printed = set()
+        if len(render_frame._debug_printed) < 10:
+            render_frame._debug_printed.add(text)
+            print(f"[RENDER DEBUG] text='{text[:8]}' font_size={font_size} angle={angle:.1f}")
+
         # Typewriter: how many characters visible
         type_speed = o.get('type_speed', 0.06)
         elapsed = t - s
