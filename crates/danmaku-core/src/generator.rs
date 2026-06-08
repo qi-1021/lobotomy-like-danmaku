@@ -81,8 +81,11 @@ pub fn generate_overlays(
         let current_active = overlays.iter()
             .filter(|o| o.start_time <= t && t <= o.end_time)
             .count();
-        if current_active < config.max_active - 1 {
-            t += rng.gen_range(0.1..0.3);
+        let gap = config.max_active - current_active;
+        if gap > 1 {
+            t += 0.05;
+        } else if gap > 0 {
+            t += rng.gen_range(0.1..0.2);
         } else {
             t += rng.gen_range(step * 0.75..step * 1.35);
         }
