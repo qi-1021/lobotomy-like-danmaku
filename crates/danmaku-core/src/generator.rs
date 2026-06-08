@@ -21,7 +21,7 @@ pub fn generate_overlays(
     let step = (0.6_f64).max(1.6 - config.density);
     let mut t = 0.4_f64;
 
-    while t < duration - 0.3 && overlays.len() < estimated_count * 2 {
+    while t < duration - 0.3 {
         let active: Vec<_> = overlays.iter()
             .filter(|o| o.start_time <= t && t <= o.end_time)
             .collect();
