@@ -174,9 +174,10 @@ def render_frame(img, overlays, t, fonts):
         alpha_int = int(overall_alpha * 255)
         fill = color + (alpha_int,) if img.mode == 'RGBA' else color
 
-        # 创建字体对象（只创建两次：基础字号 + pop字号）
-        base_font = pick_font(text, font_size)
-        pop_font = pick_font(text, int(font_size * pop_scale)) if pop_scale > 1.0 else base_font
+        # 创建字体对象（PIL 72DPI，需放大到与预览一致）
+        render_size = int(font_size * 1.25)
+        base_font = pick_font(text, render_size)
+        pop_font = pick_font(text, int(render_size * pop_scale)) if pop_scale > 1.0 else base_font
 
         # 测量已出现字符的宽度
         vis_char_widths = []
@@ -192,27 +193,24 @@ def render_frame(img, overlays, t, fonts):
             vis_offsets.append(x + w / 2 - vis_total_w / 2)
             x += w
 
-        # 渲染到临时图（整行渲染，PIL 自然基线对齐）
-        pad = max(30, int(font_size * 1.0))
+        # 渲染到临时图（用 render_size 保证不被裁剪）
+        pad = max(30, int(render_size * 1.0))
         tmp_w = int(vis_total_w + pad * 2)
-        tmp_h = int(font_size * 2.5 + pad * 2)
+        tmp_h = int(render_size * 2.5 + pad * 2)
         tmp = Image.new('RGBA', (tmp_w, tmp_h), (0, 0, 0, 0))
         tmp_draw = ImageDraw.Draw(tmp)
 
-        # 整行渲染（自然基线对齐，标点自动在正确位置）
         line_x = pad
-        line_y = pad + (tmp_h - font_size) / 2
+        line_y = pad + (tmp_h - render_size) / 2
         tmp_draw.text((int(line_x), int(line_y)), visible_text, font=base_font, fill=fill)
 
-        # 如果最后一个字符有 pop 效果，单独重绘
         if chars_visible < len(text):
             last_char = visible_text[-1]
             last_cb = base_font.getbbox(last_char)
             last_w = last_cb[2] - last_cb[0]
             last_x = line_x + vis_total_w - last_w
-            # 清除旧位置
             tmp_draw.rectangle([int(last_x - 2), int(line_y - 2),
-                                int(last_x + last_w + 2), int(line_y + font_size + 2)],
+                                int(last_x + last_w + 2), int(line_y + render_size + 2)],
                                fill=(0, 0, 0, 0))
             tmp_draw.text((int(last_x), int(line_y)), last_char, font=pop_font, fill=fill)
 
