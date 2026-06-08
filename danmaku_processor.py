@@ -319,8 +319,11 @@ def make_overlays(texts, duration, width, height, *, density=0.45, max_active=4,
         })
         # 低于 max_active 时加快生成速度，确保能同时达到上限
         current_active = sum(1 for o in overlays if o['start_time'] <= t <= o['end_time'])
-        if current_active < max_active - 1:
-            t += random.uniform(0.1, 0.3)  # 快速填充
+        gap = max_active - current_active
+        if gap > 1:
+            t += 0.05
+        elif gap > 0:
+            t += random.uniform(0.1, 0.2)
         else:
             t += random.uniform(step * 0.75, step * 1.35)
     return overlays
