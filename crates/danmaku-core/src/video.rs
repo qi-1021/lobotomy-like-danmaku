@@ -95,20 +95,21 @@ pub fn process_video(
     encoder.wait()?;
 
     // Step 3: 合并视频+音频
-    let status = std::process::Command::new("ffmpeg")
+    let merge_output = std::process::Command::new("ffmpeg")
         .args(["-y", "-i", &tmp_video, "-i", input,
                "-map", "0:v", "-map", "1:a?",
                "-c:v", "copy", "-c:a", "aac", "-shortest",
                output])
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()?;
+        .stderr(std::process::Stdio::piped())
+        .output()?;
 
     // 清理临时文件
     let _ = std::fs::remove_file(&tmp_video);
 
-    if !status.success() {
-        anyhow::bail!("ffmpeg merge failed");
+    if !merge_output.status.success() {
+        let stderr = String::from_utf8_lossy(&merge_output.stderr);
+        anyhow::bail!("ffmpeg merge failed: {}", stderr);
     }
 
     Ok(())
