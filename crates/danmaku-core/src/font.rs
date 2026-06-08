@@ -1,7 +1,8 @@
 use std::path::Path;
+use std::sync::Arc;
 
 pub struct FontCache {
-    fonts: Vec<(String, Vec<u8>, u32)>,  // (name, data, ttc_index)
+    fonts: Vec<(String, Arc<Vec<u8>>, u32)>,
     cjk_idx: Option<usize>,
     latin_idx: Option<usize>,
 }
@@ -14,7 +15,7 @@ impl FontCache {
     fn is_cjk_name(name: &str) -> bool {
         name.contains("pingfang") || name.contains("noto") || name.contains("source")
             || name.contains("msyh") || name.contains("simhei") || name.contains("wqy")
-            || name.contains("heiti") || name.contains("songti")
+            || name.contains("heiti") || name.contains("songti") || name.contains("hiragino")
     }
 
     pub fn load_from_dir(&mut self, dir: &Path) -> anyhow::Result<()> {
@@ -24,21 +25,17 @@ impl FontCache {
             let path = entry.path();
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !["ttf", "otf", "ttc"].contains(&ext) { continue; }
-            let data = std::fs::read(&path)?;
+            let data = Arc::new(std::fs::read(&path)?);
             let name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
             let is_cjk = Self::is_cjk_name(&name);
 
             if ext == "ttc" {
-                // TTC: 尝试每个 index，找到能解析的
                 for index in 0..20u32 {
-                    match ab_glyph::FontRef::try_from_slice_and_index(&data, index) {
-                        Ok(_) => {
-                            let idx = self.fonts.len();
-                            if is_cjk && self.cjk_idx.is_none() { self.cjk_idx = Some(idx); }
-                            if !is_cjk && self.latin_idx.is_none() { self.latin_idx = Some(idx); }
-                            self.fonts.push((format!("{}_{}", name, index), data.clone(), index));
-                        }
-                        Err(_) => {} // 无效 index 跳过
+                    if ab_glyph::FontRef::try_from_slice_and_index(&data, index).is_ok() {
+                        let idx = self.fonts.len();
+                        if is_cjk && self.cjk_idx.is_none() { self.cjk_idx = Some(idx); }
+                        if !is_cjk && self.latin_idx.is_none() { self.latin_idx = Some(idx); }
+                        self.fonts.push((format!("{}_{}", name, index), data.clone(), index));
                     }
                 }
             } else {
