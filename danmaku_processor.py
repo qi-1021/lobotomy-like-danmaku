@@ -33,9 +33,11 @@ def _find_system_font(names):
         for root, _, files in os.walk(d):
             for name in names:
                 for ext in ('.ttf', '.otf', '.ttc'):
-                    target = name + ext
                     for f in files:
-                        if f.lower() == target.lower():
+                        fl = f.lower()
+                        # 模糊匹配：'STHeiti' 匹配 'STHeiti Medium.ttc'
+                        nl = name.lower()
+                        if fl.startswith(nl) and fl.endswith(ext):
                             return os.path.join(root, f)
     return None
 
